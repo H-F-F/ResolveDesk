@@ -1,0 +1,10 @@
+chromadb
+fastapi
+httpx
+langsmith
+pydantic
+pymupdf
+python-multipart
+requests
+streamlit
+uvicorn

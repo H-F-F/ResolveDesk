@@ -1,0 +1,40 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 900 >>
+stream
+BT /F1 18 Tf 72 760 Td (Title: Email Signature Setup Guide) Tj ET
+BT /F1 12 Tf 72 728 Td (Use case: Employee cannot set or sync Outlook signature.) Tj ET
+BT /F1 12 Tf 72 706 Td (Common issues: signature missing, not synced, or new mail has no signature.) Tj ET
+BT /F1 12 Tf 72 676 Td (Step 1: Open Outlook and go to File > Options > Mail > Signatures.) Tj ET
+BT /F1 12 Tf 72 654 Td (Step 2: Check the correct mailbox is selected before editing the signature.) Tj ET
+BT /F1 12 Tf 72 632 Td (Step 3: Set default signatures for new messages and replies separately.) Tj ET
+BT /F1 12 Tf 72 610 Td (Step 4: Save changes and restart Outlook if the signature still does not appear.) Tj ET
+BT /F1 12 Tf 72 588 Td (Step 5: Re-add the account or recreate the Outlook profile if sync still fails.) Tj ET
+BT /F1 12 Tf 72 558 Td (Escalation: create a ticket if multiple users have the same signature issue.) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000001191 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1261
+%%EOF

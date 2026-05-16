@@ -1,0 +1,12 @@
+.git
+.venv
+.tmp
+.tmp_tests
+.vendor
+.wheels
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+storage
+tests

@@ -1,0 +1,35 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: deploy/backend.Dockerfile
+    env_file:
+      - .env
+    environment:
+      APP_ENV: docker
+      FRONTEND_API_BASE: http://backend:8000
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./storage:/app/storage
+    healthcheck:
+      test: ["CMD", "python", "deploy/healthcheck_http.py", "http://127.0.0.1:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: deploy/frontend.Dockerfile
+    env_file:
+      - .env
+    environment:
+      FRONTEND_API_BASE: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8501:8501"
