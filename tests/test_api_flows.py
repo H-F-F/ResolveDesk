@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 import unittest
 import warnings
+from pathlib import Path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -10,9 +12,7 @@ from fastapi.testclient import TestClient
 from backend.app.config import ROOT_DIR, Settings
 from backend.app.main import create_app
 
-
 KNOWLEDGE_BASE_DIR = ROOT_DIR / "data" / "knowledge_base"
-TEST_STORAGE_DIR = ROOT_DIR / "storage"
 
 warnings.filterwarnings(
     "ignore",
@@ -23,9 +23,9 @@ warnings.filterwarnings(
 
 class ApiFlowTests(unittest.TestCase):
     def setUp(self) -> None:
-        TEST_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        self._tmp_root = Path(tempfile.mkdtemp(prefix="resolvedesk_test_"))
         run_id = uuid4().hex
-        self.storage_dir = TEST_STORAGE_DIR / f"test_api_{run_id}"
+        self.storage_dir = self._tmp_root / f"test_api_{run_id}"
         self.vector_store_dir = self.storage_dir / "chroma"
         self.sqlite_path = self.storage_dir / "app.db"
         self.logs_dir = self.storage_dir / "logs"
@@ -50,12 +50,7 @@ class ApiFlowTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.client.__exit__(None, None, None)
-        try:
-            if self.sqlite_path.exists():
-                self.sqlite_path.unlink()
-        except PermissionError:
-            pass
-        shutil.rmtree(self.storage_dir, ignore_errors=True)
+        shutil.rmtree(self._tmp_root, ignore_errors=True)
 
     def test_status_reflects_sample_ingestion(self) -> None:
         response = self.client.get("/status")
@@ -165,6 +160,41 @@ class ApiFlowTests(unittest.TestCase):
         history_response = self.client.get("/evaluations")
         self.assertEqual(history_response.status_code, 200)
         self.assertEqual(history_response.json(), [])
+
+    def test_chat_returns_and_reuses_session_id(self) -> None:
+        self.client.post("/ingest/samples")
+
+        first = self.client.post("/chat", json={"message": "VPN 连不上怎么办"}).json()
+        self.assertEqual(first["mode"], "answer")
+        self.assertTrue(first["session_id"])
+
+        second = self.client.post(
+            "/chat", json={"message": "还是不行", "session_id": first["session_id"]}
+        ).json()
+        self.assertEqual(second["session_id"], first["session_id"])
+        self.assertEqual(second["mode"], "ticket")
+
+        sessions_response = self.client.get("/sessions")
+        self.assertEqual(sessions_response.status_code, 200)
+        sessions = sessions_response.json()
+        self.assertEqual(len(sessions), 1)
+        self.assertEqual(sessions[0]["session_id"], first["session_id"])
+        self.assertEqual(sessions[0]["message_count"], 4)
+
+        status_response = self.client.get("/status").json()
+        self.assertEqual(status_response["session_count"], 1)
+
+    def test_reset_clears_sessions(self) -> None:
+        self.client.post("/ingest/samples")
+        self.client.post("/chat", json={"message": "VPN 连不上怎么办"})
+
+        reset_response = self.client.post("/reset")
+        self.assertEqual(reset_response.status_code, 200)
+        self.assertEqual(reset_response.json()["deleted_sessions"], 1)
+
+        sessions_response = self.client.get("/sessions")
+        self.assertEqual(sessions_response.status_code, 200)
+        self.assertEqual(sessions_response.json(), [])
 
 
 if __name__ == "__main__":

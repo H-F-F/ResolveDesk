@@ -22,6 +22,7 @@ class TicketRecord(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="User input message")
+    session_id: str | None = Field(default=None, description="Optional conversation session id")
 
 
 class ChatResponse(BaseModel):
@@ -30,6 +31,7 @@ class ChatResponse(BaseModel):
     citations: list[Citation] = Field(default_factory=list)
     ticket: TicketRecord | None = None
     retrieval_score: float | None = None
+    session_id: str | None = None
     debug: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -50,6 +52,7 @@ class AppStatus(BaseModel):
     environment: str
     vector_documents: int
     ticket_count: int
+    session_count: int
     evaluation_run_count: int
     chat_provider: str
     chat_model: str
@@ -67,11 +70,18 @@ class HealthResponse(BaseModel):
 class ResetResponse(BaseModel):
     deleted_tickets: int
     deleted_evaluations: int = 0
+    deleted_sessions: int = 0
     vector_documents: int
     sample_data_loaded: bool = False
     ingested_files: int = 0
     ingested_chunks: int = 0
     sources: list[str] = Field(default_factory=list)
+
+
+class SessionSummary(BaseModel):
+    session_id: str
+    message_count: int
+    updated_at: str
 
 
 class EvaluationRunSummary(BaseModel):

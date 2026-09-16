@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import re
 
-
 CHINESE_PATTERN = re.compile(r"[\u4e00-\u9fff]+")
 LATIN_PATTERN = re.compile(r"[a-z0-9_]+")
 PART_PATTERN = re.compile(r"[\u4e00-\u9fff]+|[a-z0-9_]+")

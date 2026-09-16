@@ -1,0 +1,36 @@
+[project]
+name = "resolvedesk"
+version = "0.3.0"
+description = "企业 IT 知识库工单助手：RAG 检索 + Tool Calling Agent + 多轮会话 + 可观测性"
+requires-python = ">=3.11"
+dependencies = [
+    "chromadb==1.5.9",
+    "fastapi==0.141.1",
+    "httpx==0.28.1",
+    "langsmith==0.12.5",
+    "pydantic==2.13.5",
+    "pymupdf==1.28.2",
+    "python-multipart==0.0.32",
+    "requests==2.34.2",
+    "streamlit==1.64.0",
+    "uvicorn==0.53.0",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+exclude = [".venv", "storage", ".git"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "DTZ", "TRY"]
+ignore = [
+    "B008",   # FastAPI 惯用的 File(...) 参数默认值
+    "DTZ005", # 演示应用使用本地朴素时间
+    "TRY004", # 保留 ValueError 语义
+    "BLE001", # 健康检查脚本的兜底异常捕获
+    "RUF001", # 中文标点是正常内容，不是歧义字符
+    "RUF002", # 同上（docstring）
+    "RUF003", # 同上（注释）
+    "TRY003", # 中文错误消息不适合抽成异常类常量
+    "TRY300", # try 内直接 return 是 FastAPI 处理器的惯用写法
+]

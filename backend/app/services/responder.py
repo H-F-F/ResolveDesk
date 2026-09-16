@@ -7,9 +7,8 @@ from typing import Any
 import requests
 
 from ..tracing import traceable
-from .contracts import ChatCompletionClient
+from .contracts import AgentToolCall, AgentToolTurn, ChatCompletionClient
 from .domain import RetrievedChunk
-
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +66,59 @@ class OpenAICompatibleChatClient:
         if not rendered:
             raise ValueError("Chat 接口未返回文本内容")
         return rendered
+
+    @traceable(name="chat_completion_tools_openai_compatible")
+    def complete_with_tools(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> AgentToolTurn:
+        payload: dict = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": self.temperature,
+            "stream": False,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        response = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=self.timeout_seconds,
+            verify=self.verify_ssl,
+        )
+        self._raise_for_status(response)
+
+        parsed = response.json()
+        choices = parsed.get("choices", [])
+        if not isinstance(choices, list) or not choices:
+            raise ValueError("Chat 接口返回结果为空")
+
+        message = choices[0].get("message", {})
+        content = self._render_content(message.get("content", "")).strip() or None
+
+        tool_calls: list[AgentToolCall] = []
+        raw_tool_calls = message.get("tool_calls") or []
+        if not isinstance(raw_tool_calls, list):
+            raise ValueError("Chat 接口返回的 tool_calls 格式异常")
+        for raw_call in raw_tool_calls:
+            if not isinstance(raw_call, dict):
+                continue
+            call_id = str(raw_call.get("id") or "")
+            function = raw_call.get("function") or {}
+            name = str(function.get("name") or "")
+            arguments = str(function.get("arguments") or "")
+            if not call_id or not name:
+                continue
+            tool_calls.append(AgentToolCall(call_id=call_id, name=name, arguments=arguments))
+
+        return AgentToolTurn(content=content, tool_calls=tool_calls)
 
     def _render_content(self, content: Any) -> str:
         if isinstance(content, str):
@@ -211,10 +263,10 @@ class SupportResponder:
         rendered: list[str] = []
         for index, chunk in enumerate(chunks, start=1):
             rendered.append(
-                (
+                
                     f"[{index}] source={chunk.source} score={chunk.score:.4f}\n"
                     f"{chunk.text}"
-                )
+                
             )
         return "\n\n".join(rendered)
 
@@ -223,9 +275,7 @@ class SupportResponder:
         prioritized: list[str] = []
 
         for line in candidates:
-            if re.match(r"^(\d+[.)、]|步骤|处理步骤|建议|现象|升级条件)", line):
-                prioritized.append(line)
-            elif 8 <= len(line) <= 60:
+            if re.match(r"^(\d+[.)、]|步骤|处理步骤|建议|现象|升级条件)", line) or 8 <= len(line) <= 60:
                 prioritized.append(line)
 
         deduplicated: list[str] = []

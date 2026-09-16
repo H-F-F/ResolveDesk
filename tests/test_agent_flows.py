@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import shutil
+import tempfile
 import unittest
 import warnings
-from uuid import uuid4
 from pathlib import Path
+from uuid import uuid4
 
 from backend.app.database import Database
 from backend.app.services.agent import SupportAgent
 from backend.app.services.chunker import TextChunker
+from backend.app.services.conversations import ConversationService
 from backend.app.services.document_loader import DocumentLoader
 from backend.app.services.embedder import LocalHashEmbedder
 from backend.app.services.ingestion import IngestionService
@@ -16,10 +18,8 @@ from backend.app.services.responder import SupportResponder
 from backend.app.services.tickets import TicketService
 from backend.app.services.vector_store import VectorStore
 
-
 ROOT_DIR = Path(__file__).resolve().parents[1]
 KNOWLEDGE_BASE_DIR = ROOT_DIR / "data" / "knowledge_base"
-TEST_STORAGE_DIR = ROOT_DIR / "storage"
 
 warnings.filterwarnings(
     "ignore",
@@ -30,10 +30,10 @@ warnings.filterwarnings(
 
 class AgentFlowTests(unittest.TestCase):
     def setUp(self) -> None:
-        TEST_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        self._tmp_root = Path(tempfile.mkdtemp(prefix="resolvedesk_test_"))
         run_id = uuid4().hex
-        self.db_path = TEST_STORAGE_DIR / f"test_{run_id}.db"
-        self.vector_dir = TEST_STORAGE_DIR / f"test_chroma_{run_id}"
+        self.db_path = self._tmp_root / f"test_{run_id}.db"
+        self.vector_dir = self._tmp_root / f"test_chroma_{run_id}"
         self.vector_dir.mkdir(parents=True, exist_ok=True)
 
         database = Database(self.db_path)
@@ -47,22 +47,19 @@ class AgentFlowTests(unittest.TestCase):
         ingestion_service.ingest_directory(KNOWLEDGE_BASE_DIR)
 
         self.ticket_service = TicketService(database)
+        self.conversation_service = ConversationService(database)
         self.agent = SupportAgent(
             vector_store=vector_store,
             responder=SupportResponder(),
             ticket_service=self.ticket_service,
+            conversations=self.conversation_service,
             top_k=3,
             score_threshold=0.22,
             lexical_score_threshold=0.2,
         )
 
     def tearDown(self) -> None:
-        try:
-            if self.db_path.exists():
-                self.db_path.unlink()
-        except PermissionError:
-            pass
-        shutil.rmtree(self.vector_dir, ignore_errors=True)
+        shutil.rmtree(self._tmp_root, ignore_errors=True)
 
     def test_vpn_question_hits_knowledge_base(self) -> None:
         response = self.agent.chat("VPN 连不上怎么办")

@@ -110,3 +110,37 @@
   - 返回通过率
   - 未知问题不会被误答成已有知识库答案
   - 若通过率下降，可优先检查 `RAG_LEXICAL_SCORE_THRESHOLD`
+
+## 用例 15：多轮会话保持上下文
+
+- 前置：已载入示例知识库
+- 操作：
+  1. 调用 `POST /chat`，请求 `{"message": "VPN 连不上怎么办"}`，记录返回的 `session_id`
+  2. 再调用 `POST /chat`，请求 `{"message": "还是不行", "session_id": "<上一步 session_id>"}`
+- 预期：
+  - 第一次返回 `mode=answer`
+  - 第二次返回 `mode=ticket`（离线模式命中升级关键词；真实模式由 Agent 根据上下文判定）
+  - 两次响应的 `session_id` 一致
+
+## 用例 16：会话列表与重置
+
+- 操作：
+  1. 发起若干次 `POST /chat`（可带 `session_id`）
+  2. 调用 `GET /sessions`
+  3. 调用 `POST /reset`
+  4. 再次调用 `GET /sessions`
+- 预期：
+  - `GET /sessions` 返回会话、消息数与更新时间
+  - 重置后 `deleted_sessions` 等于之前会话数，`GET /sessions` 返回空列表
+
+## 用例 17：真实模型模式走 Tool Calling
+
+- 前置：`.env` 已配置真实模型，示例知识库已载入
+- 操作：调用 `POST /chat`，请求 `{"message": "VPN 连不上怎么办"}`
+- 预期：
+  - `debug.decision` 为 `tool_loop`
+  - `debug.tools_executed` 包含 `search_knowledge`
+  - 回答基于检索片段生成，并带引用来源
+- 再请求 `{"message": "我按步骤试过了还是不行，帮我创建工单"}`
+  - `debug.tools_executed` 包含 `create_ticket`
+  - 返回 `mode=ticket`，工单原因由模型生成

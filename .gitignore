@@ -181,7 +181,7 @@ cython_debug/
 .cursorindexingignore
 
 # ===== 本地构建/运行产物（不应提交） =====
-# vendored 依赖（离线兜底用，正常部署走 pip 安装）
+# vendored 依赖（已移除该机制，依赖全部走 pip 安装）
 .vendor/
 # 预下载的 wheel 安装包
 .wheels/

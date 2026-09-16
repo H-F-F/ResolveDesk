@@ -20,20 +20,21 @@ from .schemas import (
     HealthResponse,
     IngestResponse,
     ResetResponse,
+    SessionSummary,
     TicketRecord,
 )
 from .services.agent import SupportAgent
 from .services.chunker import TextChunker
 from .services.contracts import TextEmbedder
+from .services.conversations import ConversationService
 from .services.document_loader import DocumentLoader
-from .services.evaluator import SupportEvaluator
 from .services.evaluation_history import EvaluationHistoryService
+from .services.evaluator import SupportEvaluator
 from .services.ingestion import IngestionService
 from .services.providers import build_embedder, build_responder
 from .services.responder import SupportResponder
 from .services.tickets import TicketService
 from .services.vector_store import VectorStore
-
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class AppServices:
     vector_store: VectorStore
     ingestion_service: IngestionService
     ticket_service: TicketService
+    conversation_service: ConversationService
     responder: SupportResponder
     agent: SupportAgent
     evaluator: SupportEvaluator
@@ -62,19 +64,29 @@ def build_services(app_settings: Settings) -> AppServices:
     loader = DocumentLoader()
     chunker = TextChunker(app_settings.chunk_size, app_settings.chunk_overlap)
     embedder = build_embedder(app_settings)
+    probe_dimension = len(embedder.embed_texts(["维度探测"])[0])
+    if probe_dimension != app_settings.embedding_dimension:
+        logger.warning(
+            "嵌入模型实际维度(%s)与配置 EMBEDDING_DIMENSION(%s)不一致，已按实际维度使用",
+            probe_dimension,
+            app_settings.embedding_dimension,
+        )
     vector_store = VectorStore(
         app_settings.vector_store_dir,
-        f"{app_settings.collection_name}_{app_settings.embedding_dimension}",
+        f"{app_settings.collection_name}_{probe_dimension}",
         embedder,
+        embedding_dimension=probe_dimension,
     )
     ingestion_service = IngestionService(loader, chunker, vector_store)
     ticket_service = TicketService(database)
+    conversation_service = ConversationService(database)
     evaluation_history = EvaluationHistoryService(database)
     responder = build_responder(app_settings)
     agent = SupportAgent(
         vector_store=vector_store,
         responder=responder,
         ticket_service=ticket_service,
+        conversations=conversation_service,
         top_k=app_settings.rag_top_k,
         score_threshold=app_settings.rag_score_threshold,
         lexical_score_threshold=app_settings.rag_lexical_score_threshold,
@@ -96,6 +108,7 @@ def build_services(app_settings: Settings) -> AppServices:
         vector_store=vector_store,
         ingestion_service=ingestion_service,
         ticket_service=ticket_service,
+        conversation_service=conversation_service,
         responder=responder,
         agent=agent,
         evaluator=evaluator,
@@ -109,6 +122,7 @@ def build_status(services: AppServices) -> AppStatus:
         environment=services.settings.app_env,
         vector_documents=services.vector_store.count(),
         ticket_count=services.ticket_service.count_tickets(),
+        session_count=services.conversation_service.count_sessions(),
         evaluation_run_count=services.evaluation_history.count_runs(),
         chat_provider=services.responder.provider_name,
         chat_model=services.responder.model_name,
@@ -143,8 +157,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(
         title=runtime_settings.app_name,
-        version="0.2.0",
-        description="面试版 Agent + RAG 企业 IT 知识库工单助手",
+        version="0.3.0",
+        description="企业 IT 知识库工单助手：RAG 检索 + Tool Calling Agent + 多轮会话 + 可观测性",
         lifespan=lifespan,
     )
     application.state.services = services
@@ -224,6 +238,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
         try:
             deleted_tickets = services.ticket_service.clear_tickets()
             deleted_evaluations = services.evaluation_history.clear_runs() if clear_evaluations else 0
+            deleted_sessions = services.conversation_service.clear_all()
             services.vector_store.reset()
 
             if load_samples:
@@ -232,6 +247,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
                 return ResetResponse(
                     deleted_tickets=deleted_tickets,
                     deleted_evaluations=deleted_evaluations,
+                    deleted_sessions=deleted_sessions,
                     vector_documents=services.vector_store.count(),
                     sample_data_loaded=True,
                     ingested_files=result.ingested_files,
@@ -243,6 +259,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             return ResetResponse(
                 deleted_tickets=deleted_tickets,
                 deleted_evaluations=deleted_evaluations,
+                deleted_sessions=deleted_sessions,
                 vector_documents=services.vector_store.count(),
             )
         except ValueError as exc:
@@ -270,7 +287,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @application.post("/chat", response_model=ChatResponse)
     def chat(request: ChatRequest) -> ChatResponse:
         try:
-            return services.agent.chat(request.message)
+            return services.agent.chat(request.message, session_id=request.session_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
@@ -280,6 +297,10 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @application.get("/tickets", response_model=list[TicketRecord])
     def list_tickets() -> list[TicketRecord]:
         return services.ticket_service.list_tickets()
+
+    @application.get("/sessions", response_model=list[SessionSummary])
+    def list_sessions() -> list[SessionSummary]:
+        return services.conversation_service.list_sessions()
 
     return application
 

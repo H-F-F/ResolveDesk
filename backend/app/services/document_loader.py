@@ -11,7 +11,7 @@ except ImportError:
 
 
 class DocumentLoader:
-    supported_suffixes = {".txt", ".md", ".pdf"}
+    supported_suffixes: tuple[str, ...] = (".txt", ".md", ".pdf")
 
     @property
     def pdf_supported(self) -> bool:
@@ -35,10 +35,11 @@ class DocumentLoader:
         if suffix not in self.supported_suffixes:
             raise ValueError(f"暂不支持的文件类型: {suffix}")
 
-        if suffix == ".pdf":
-            text = self._read_pdf_bytes(content)
-        else:
-            text = self._decode_text_bytes(content)
+        text = (
+            self._read_pdf_bytes(content)
+            if suffix == ".pdf"
+            else self._decode_text_bytes(content)
+        )
 
         if not text.strip():
             raise ValueError(f"文档内容为空: {filename}")

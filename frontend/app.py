@@ -8,7 +8,6 @@ import streamlit as st
 
 from backend.app.env_loader import load_local_env
 
-
 load_local_env()
 
 
@@ -104,6 +103,7 @@ def render_service_status(status: dict | None, documents: list[dict]) -> None:
                 f"- 知识文件：`{len(documents)}`",
                 f"- 向量分块：`{status['vector_documents']}`",
                 f"- 工单数量：`{status['ticket_count']}`",
+                f"- 会话数量：`{status['session_count']}`",
                 f"- 评测记录：`{status['evaluation_run_count']}`",
                 f"- 聊天模型：`{status['chat_provider']} / {status['chat_model']}`",
                 f"- 向量模型：`{status['embedding_provider']} / {status['embedding_model']}`",
@@ -115,7 +115,7 @@ def render_service_status(status: dict | None, documents: list[dict]) -> None:
 
 st.set_page_config(page_title="IT 知识库工单助手", layout="wide")
 st.title("企业 IT 知识库工单助手")
-st.caption("面试版 MVP：RAG 检索 + 单 Agent 决策 + 模拟工单创建")
+st.caption("RAG 检索 + Tool Calling Agent + 多轮会话 + 可观测性")
 
 api_base = st.sidebar.text_input("后端 API 地址", DEFAULT_API_BASE).rstrip("/")
 if st.session_state.get("api_base") != api_base:
@@ -156,8 +156,11 @@ if st.sidebar.button("重置并载入示例知识库", use_container_width=True)
         payload = post_json(api_base, "/reset", params={"load_samples": True, "clear_evaluations": True})
         refresh_dashboard(api_base)
         clear_result_views()
+        st.session_state.pop("session_id", None)
         st.sidebar.success(
-            f"已清空 {payload['deleted_tickets']} 条工单、{payload['deleted_evaluations']} 条评测记录，并导入 {payload['ingested_files']} 个示例文件"
+            "已清空 "
+            f"{payload['deleted_tickets']} 条工单、{payload['deleted_evaluations']} 条评测记录，"
+            f"并导入 {payload['ingested_files']} 个示例文件"
         )
     except requests.RequestException as exc:
         st.sidebar.error(f"重置失败: {extract_error_message(exc)}")
@@ -167,8 +170,11 @@ if st.sidebar.button("清空当前数据", use_container_width=True):
         payload = post_json(api_base, "/reset", params={"clear_evaluations": True})
         refresh_dashboard(api_base)
         clear_result_views()
+        st.session_state.pop("session_id", None)
         st.sidebar.success(
-            f"已清空 {payload['deleted_tickets']} 条工单、{payload['deleted_evaluations']} 条评测记录和全部向量索引"
+            "已清空 "
+            f"{payload['deleted_tickets']} 条工单、{payload['deleted_evaluations']} 条评测记录"
+            "和全部向量索引"
         )
     except requests.RequestException as exc:
         st.sidebar.error(f"清空失败: {extract_error_message(exc)}")
@@ -224,19 +230,36 @@ else:
     st.info("当前还没有载入知识文档。")
 
 st.markdown("### 提问")
-question = st.text_area(
-    "输入你的问题",
-    placeholder="例如：VPN 连不上怎么办？",
-    height=120,
-    key="question_input",
-)
+session_id = st.session_state.get("session_id")
+if session_id:
+    st.caption(f"当前会话：`{session_id}`（后续提问会自动带上上下文）")
+
+question_col, session_col = st.columns([4, 1])
+with question_col:
+    question = st.text_area(
+        "输入你的问题",
+        placeholder="例如：VPN 连不上怎么办？",
+        height=120,
+        key="question_input",
+    )
+with session_col:
+    st.write("")
+    if st.button("新会话", use_container_width=True):
+        st.session_state.pop("session_id", None)
+        clear_result_views()
 
 if st.button("提交问题", type="primary"):
     if not question.strip():
         st.warning("请输入问题")
     else:
         try:
-            st.session_state["last_result"] = post_json(api_base, "/chat", {"message": question})
+            payload: dict[str, Any] = {"message": question}
+            if session_id:
+                payload["session_id"] = session_id
+            result = post_json(api_base, "/chat", payload)
+            if result.get("session_id"):
+                st.session_state["session_id"] = result["session_id"]
+            st.session_state["last_result"] = result
             refresh_dashboard(api_base)
         except requests.RequestException as exc:
             st.error(f"请求失败: {extract_error_message(exc)}")

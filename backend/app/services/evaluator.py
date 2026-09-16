@@ -9,6 +9,7 @@ from uuid import uuid4
 from ..database import Database
 from ..schemas import EvaluationCaseResult, EvaluationReport
 from .agent import SupportAgent
+from .conversations import ConversationService
 from .responder import SupportResponder
 from .tickets import TicketService
 from .vector_store import VectorStore
@@ -84,10 +85,12 @@ class SupportEvaluator:
         database = Database(temp_db_path)
         database.initialize()
         ticket_service = TicketService(database)
+        conversation_service = ConversationService(database)
         agent = SupportAgent(
             vector_store=self.vector_store,
             responder=self.responder,
             ticket_service=ticket_service,
+            conversations=conversation_service,
             top_k=self.top_k,
             score_threshold=self.score_threshold,
             lexical_score_threshold=self.lexical_score_threshold,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import suppress
 from pathlib import Path
 
 import chromadb
@@ -16,11 +17,28 @@ class VectorStore:
         directory: Path,
         collection_name: str,
         embedder: TextEmbedder,
+        embedding_dimension: int | None = None,
     ) -> None:
         self.client = chromadb.PersistentClient(path=str(directory))
         self.collection_name = collection_name
         self.embedder = embedder
+        self.embedding_dimension = embedding_dimension
         self.collection = self._get_or_create_collection()
+        if embedding_dimension is not None:
+            self._ensure_dimension(embedding_dimension)
+
+    def _ensure_dimension(self, dimension: int) -> None:
+        """Fail fast with a clear message when the stored collection dimension mismatches."""
+        if self.collection.count() == 0:
+            return
+        sample = self.collection.get(include=["embeddings"], limit=1)
+        embeddings = sample.get("embeddings")
+        if embeddings is not None and len(embeddings) > 0 and len(embeddings[0]) != dimension:
+            raise ValueError(
+                f"向量库现有集合维度({len(embeddings[0])})与当前嵌入模型维度({dimension})不一致，"
+                "可能是切换了嵌入模型或配置。"
+                f"请调用 POST /reset 或删除目录 {self.directory} 后重新导入知识库。"
+            )
 
     def count(self) -> int:
         return self.collection.count()
@@ -69,7 +87,9 @@ class VectorStore:
         distances = result.get("distances", [[]])[0]
 
         hits: list[RetrievedChunk] = []
-        for chunk_id, document, metadata, distance in zip(ids, documents, metadatas, distances):
+        for chunk_id, document, metadata, distance in zip(
+            ids, documents, metadatas, distances, strict=True
+        ):
             dense_score = max(0.0, 1.0 - float(distance))
             lexical_score = lexical_coverage_score(query, document)
             score = (0.45 * dense_score) + (0.55 * lexical_score)
@@ -126,10 +146,8 @@ class VectorStore:
         return summaries
 
     def reset(self) -> None:
-        try:
+        with suppress(ValueError):
             self.client.delete_collection(name=self.collection_name)
-        except ValueError:
-            pass
         self.collection = self._get_or_create_collection()
 
     def _get_or_create_collection(self):

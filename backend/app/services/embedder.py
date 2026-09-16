@@ -10,7 +10,6 @@ import requests
 from ..tracing import traceable
 from .text_matching import token_weight, tokenize_text
 
-
 logger = logging.getLogger(__name__)
 
 

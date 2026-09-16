@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from backend.app.config import Settings
+from backend.app.services.contracts import AgentToolTurn
 from backend.app.services.domain import RetrievedChunk
 from backend.app.services.embedder import LocalHashEmbedder, OpenAICompatibleEmbedder
 from backend.app.services.providers import build_embedder, build_responder
@@ -22,6 +23,11 @@ class FakeChatClient:
         if self.fail:
             raise ValueError("boom")
         return self.response
+
+    def complete_with_tools(self, messages: list[dict], tools: list[dict]) -> AgentToolTurn:
+        if self.fail:
+            raise ValueError("boom")
+        return AgentToolTurn(content=self.response)
 
 
 class ModelRuntimeTests(unittest.TestCase):

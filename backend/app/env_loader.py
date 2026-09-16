@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-
 ROOT_DIR = Path(__file__).resolve().parents[2]
 ENV_FILES = (ROOT_DIR / ".env", ROOT_DIR / ".env.local")
 

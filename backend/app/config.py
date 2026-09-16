@@ -6,7 +6,6 @@ from pathlib import Path
 
 from .env_loader import load_local_env
 
-
 load_local_env()
 
 
@@ -86,12 +85,18 @@ class Settings:
     model_verify_ssl: bool = field(default_factory=lambda: _env_bool("MODEL_VERIFY_SSL", True))
     collection_name: str = field(default_factory=lambda: _env_str("CHROMA_COLLECTION", "it_knowledge_base"))
     rag_top_k: int = field(default_factory=lambda: _env_int("RAG_TOP_K", 3))
-    rag_score_threshold: float = field(default_factory=lambda: _env_float("RAG_SCORE_THRESHOLD", 0.22))
-    rag_lexical_score_threshold: float = field(default_factory=lambda: _env_float("RAG_LEXICAL_SCORE_THRESHOLD", 0.2))
+    rag_score_threshold: float = field(
+        default_factory=lambda: _env_float("RAG_SCORE_THRESHOLD", 0.22)
+    )
+    rag_lexical_score_threshold: float = field(
+        default_factory=lambda: _env_float("RAG_LEXICAL_SCORE_THRESHOLD", 0.2)
+    )
     chunk_size: int = field(default_factory=lambda: _env_int("CHUNK_SIZE", 700))
     chunk_overlap: int = field(default_factory=lambda: _env_int("CHUNK_OVERLAP", 120))
     embedding_dimension: int = field(
-        default_factory=lambda: _env_int_from_names(("EMBEDDING_DIMENSION", "LOCAL_EMBEDDING_DIMENSION"), 1536)
+        default_factory=lambda: _env_int_from_names(
+            ("EMBEDDING_DIMENSION", "LOCAL_EMBEDDING_DIMENSION"), 1536
+        )
     )
     storage_dir: Path = field(default_factory=_default_storage_dir)
     vector_store_dir: Path = field(default_factory=_default_vector_store_dir)

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
 
 
 class Database:
@@ -43,6 +43,23 @@ class Database:
                     pass_rate REAL NOT NULL,
                     report_json TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS conversations (
+                    session_id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    role TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_messages_session
+                ON messages (session_id, id);
                 """
             )
 
@@ -69,5 +86,19 @@ class Database:
             row = connection.execute("SELECT COUNT(*) AS count FROM evaluation_runs").fetchone()
             deleted = int(row["count"])
             connection.execute("DELETE FROM evaluation_runs")
+            connection.commit()
+        return deleted
+
+    def session_count(self) -> int:
+        with self.connect() as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM conversations").fetchone()
+        return int(row["count"])
+
+    def clear_conversations(self) -> int:
+        with self.connect() as connection:
+            row = connection.execute("SELECT COUNT(*) AS count FROM conversations").fetchone()
+            deleted = int(row["count"])
+            connection.execute("DELETE FROM messages")
+            connection.execute("DELETE FROM conversations")
             connection.commit()
         return deleted
