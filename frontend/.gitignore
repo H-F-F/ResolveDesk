@@ -1,0 +1,18 @@
+# Node 依赖与构建产物（不应提交）
+node_modules/
+dist/
+coverage/
+
+# 本地环境
+.env.local
+.env.*.local
+
+# 编辑器
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

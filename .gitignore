@@ -191,3 +191,8 @@ cython_debug/
 .tmp_tests/
 # 运行时生成的向量库/测试缓存（storage 下大量 chroma 二进制）
 storage/
+# ===== Node 前端构建产物 =====
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/.vite/
