@@ -34,3 +34,7 @@ ignore = [
     "TRY003", # 中文错误消息不适合抽成异常类常量
     "TRY300", # try 内直接 return 是 FastAPI 处理器的惯用写法
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# Streamlit 入口需要在第三方导入前引导 sys.path，故豁免 E402
+"frontend/app.py" = ["E402"]

@@ -6,5 +6,4 @@ pydantic==2.13.5
 pymupdf==1.28.2
 python-multipart==0.0.32
 requests==2.34.2
-streamlit==1.64.0
 uvicorn==0.53.0
