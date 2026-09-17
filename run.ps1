@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [int]$BackendPort = 8000,
-    [int]$FrontendPort = 8501,
+    [int]$FrontendPort = 5173,
     [int]$WaitForBackendSeconds = 30,
     [switch]$DryRun
 )
@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSCommandPath
-$VendorPath = Join-Path $RepoRoot ".vendor"
+$FrontendDir = Join-Path $RepoRoot "frontend"
 $BackendUrl = "http://127.0.0.1:$BackendPort"
 $FrontendUrl = "http://127.0.0.1:$FrontendPort"
 $HealthUrl = "$BackendUrl/health"
@@ -25,7 +25,7 @@ function Test-PythonCandidate {
     param([Parameter(Mandatory = $true)][string]$PythonPath)
 
     try {
-        & $PythonPath -c "import uvicorn, streamlit, requests, chromadb" *> $null
+        & $PythonPath -c "import uvicorn, requests, chromadb" *> $null
         return $LASTEXITCODE -eq 0
     } catch {
         return $false
@@ -59,7 +59,14 @@ function Resolve-Python {
         "none"
     }
 
-    throw "No usable Python interpreter found. Tried: $tried. Required modules: uvicorn, streamlit, requests, chromadb."
+    throw "No usable Python interpreter found. Tried: $tried. Required modules: uvicorn, requests, chromadb."
+}
+
+function Assert-NodeAvailable {
+    $node = Get-Command node -ErrorAction SilentlyContinue
+    if (-not $node) {
+        throw "Node.js not found. 前端需要 Node.js 18+，请先安装：https://nodejs.org/"
+    }
 }
 
 function Build-WindowCommand {
@@ -75,11 +82,6 @@ function Build-WindowCommand {
         "Set-Location $(Quote-Single $RepoRoot)"
     )
 
-    if (Test-Path $VendorPath) {
-        $vendorLiteral = Quote-Single $VendorPath
-        $lines += "if ([string]::IsNullOrWhiteSpace(`$env:PYTHONPATH)) { `$env:PYTHONPATH = $vendorLiteral } else { `$env:PYTHONPATH = ${vendorLiteral} + ';' + `$env:PYTHONPATH }"
-    }
-
     foreach ($entry in $ExtraEnv.GetEnumerator() | Sort-Object Key) {
         $lines += "`$env:$($entry.Key) = $(Quote-Single ([string]$entry.Value))"
     }
@@ -93,6 +95,22 @@ function Build-WindowCommand {
     $lines += $commandParts -join " "
 
     return $lines -join "; "
+}
+
+function Ensure-FrontendDependencies {
+    $nodeModules = Join-Path $FrontendDir "node_modules"
+    if (-not (Test-Path $nodeModules)) {
+        Write-Host "Installing frontend dependencies (first run) ..."
+        Push-Location $FrontendDir
+        try {
+            npm install
+            if ($LASTEXITCODE -ne 0) {
+                throw "npm install failed."
+            }
+        } finally {
+            Pop-Location
+        }
+    }
 }
 
 function Wait-ForBackend {
@@ -117,6 +135,8 @@ function Wait-ForBackend {
     return $false
 }
 
+Assert-NodeAvailable
+Ensure-FrontendDependencies
 $PythonPath = Resolve-Python
 
 $backendCommand = Build-WindowCommand `
@@ -130,20 +150,9 @@ $backendCommand = Build-WindowCommand `
         "$BackendPort"
     )
 
-$frontendCommand = Build-WindowCommand `
-    -PythonPath $PythonPath `
-    -ModuleName "streamlit" `
-    -Arguments @(
-        "run",
-        "frontend/app.py",
-        "--server.port",
-        "$FrontendPort",
-        "--browser.gatherUsageStats",
-        "false"
-    ) `
-    -ExtraEnv @{
-        "FRONTEND_API_BASE" = $BackendUrl
-    }
+$frontendCommand = "Set-Location $(Quote-Single $FrontendDir); " + `
+    "`$env:VITE_BACKEND_PORT = $(Quote-Single "$BackendPort"); " + `
+    "npm run dev -- --port $FrontendPort"
 
 if ($DryRun) {
     Write-Host "Python: $PythonPath"
@@ -187,3 +196,5 @@ Write-Host "Backend PID : $($backendProcess.Id)"
 Write-Host "Frontend PID: $($frontendProcess.Id)"
 Write-Host "Backend URL : $BackendUrl"
 Write-Host "Frontend URL: $FrontendUrl"
+Write-Host ""
+Write-Host "提示：前端开发服务器通过 /api 代理访问后端，无需额外配置跨域。"
