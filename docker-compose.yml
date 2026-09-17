@@ -24,12 +24,8 @@ services:
     build:
       context: .
       dockerfile: deploy/frontend.Dockerfile
-    env_file:
-      - .env
-    environment:
-      FRONTEND_API_BASE: http://backend:8000
     depends_on:
       backend:
         condition: service_healthy
     ports:
-      - "8501:8501"
+      - "8501:80"

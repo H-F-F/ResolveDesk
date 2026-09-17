@@ -23,24 +23,9 @@ services:
     build:
       context: .
       dockerfile: deploy/frontend.Dockerfile
-    env_file:
-      - .env
-    environment:
-      FRONTEND_API_BASE: http://backend:8000
     restart: unless-stopped
     depends_on:
       backend:
         condition: service_healthy
-
-  nginx:
-    image: nginx:1.27-alpine
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-      frontend:
-        condition: service_started
     ports:
       - "80:80"
-    volumes:
-      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
