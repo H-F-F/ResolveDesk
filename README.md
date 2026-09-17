@@ -1,30 +1,75 @@
 # ResolveDesk
 
-ResolveDesk 是一个企业 IT 知识库工单助手，演示一条完整的智能支持流程：
+[![CI](https://github.com/H-F-F/ResolveDesk/actions/workflows/ci.yml/badge.svg)](https://github.com/H-F-F/ResolveDesk/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB)](https://github.com/H-F-F/ResolveDesk)
+[![Node](https://img.shields.io/badge/Node.js-22-339933)](https://github.com/H-F-F/ResolveDesk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-- 导入知识库文档（`txt` / `md` / `pdf`）
-- 使用 **RAG** 检索回答常见 IT 问题
-- 由 **Tool Calling Agent** 自主决策：检索知识库 → 回答问题，或创建升级工单
-- 支持**多轮会话**，Agent 会带上上下文理解追问（如"还是不行"）
-- 内置**评测套件**与可观测性（LangSmith 可选接入）
+企业 IT 知识库工单助手：RAG 检索 + Tool Calling Agent 自主决策 + 多轮会话 + 可观测性。
 
-技术栈：`FastAPI + Streamlit + ChromaDB + SQLite`，支持**离线演示模式**（无需任何 API Key）和 **OpenAI Compatible 模型接入**（如阿里云百炼）。
+用户提问后，Agent 先检索企业知识库；命中则给出带引用来源的解答，查不到或用户反馈"还是不行"则自动创建工单转交技术人员。支持离线模式，无需任何 API Key 即可本地运行演示。
+
+## 功能特性
+
+- RAG 问答：文档导入（TXT / MD / PDF）→ 分块 → 向量化 → 混合检索排序，回答带引用片段与得分
+- Tool Calling Agent：`search_knowledge` / `create_ticket` 工具循环，LLM 自主决策；无模型时回退启发式规则
+- 多轮会话：`session_id` 贯穿请求，SQLite 持久化会话与消息，Agent 自动携带上下文理解追问
+- 内置评测套件：一键运行命中回答 / 未命中转单 / 显式升级等用例
+- 可观测性：响应携带决策路径、工具调用序列与检索分数，预留 LangSmith 追踪
+
+## 界面预览
+
+![智能对话：多轮会话 + 引用来源 + 调试信息](docs/images/react-chat.png)
+
+| 知识库管理 | 多轮会话与工单创建 |
+| --- | --- |
+| ![知识库管理](docs/images/react-knowledge.png) | ![多轮会话与工单](docs/images/react-ticket.png) |
+
+## 系统架构
+
+```mermaid
+flowchart LR
+    U[用户] -->|提问 / 追问| F[React + TypeScript 前端]
+    F -->|POST /chat 携带 session_id| API[FastAPI 后端]
+    API --> AG[Agent 决策层]
+    AG -->|调用 search_knowledge| VS[(ChromaDB 向量库)]
+    AG -->|调用 create_ticket| DB[(SQLite 工单 · 会话 · 评测)]
+    AG <-->|LLM 函数调用 / 响应| LLM[OpenAI Compatible 模型]
+    VS -->|检索片段 + 得分| AG
+    DB -->|多轮会话上下文| AG
+    AG -->|answer + 引用 / ticket| API
+    API -->|状态 / 文档 / 会话 / 评测| F
+    subgraph 可观测性
+        TR[LangSmith 追踪（可选）]
+    end
+    API -.-> TR
+```
 
 ## 核心流程
 
 1. 文档被读取、切分为文本块并写入 ChromaDB 向量库
 2. 用户提问后，Agent 通过工具调用检索知识库（`search_knowledge`）
 3. 如果结果足够可信，Agent 基于检索片段生成带引用的回答
-4. 如果结果不足、前序方案无效，或用户明确要求升级，Agent 调用 `create_ticket` 工具创建工单
+4. 如果结果不足、前序方案无效，或用户明确要求升级，Agent 调用 `create_ticket` 创建工单
 
 ### 两种决策路径
 
 | 模式 | 触发条件 | 行为 |
 | --- | --- | --- |
-| Tool Calling Agent | 配置了真实模型（`CHAT_PROVIDER=openai_compatible`） | LLM 通过函数调用自主决定"检索/回答/转单"，支持多轮上下文 |
+| Tool Calling Agent | 配置真实模型（`CHAT_PROVIDER=openai_compatible`） | LLM 通过函数调用自主决定"检索 / 回答 / 转单"，支持多轮上下文 |
 | 启发式回退 | 离线模式（`CHAT_PROVIDER=offline`） | 混合分数 + 阈值 + 升级关键词规则决策，零外部依赖 |
 
 两种路径均支持多轮会话与工单记录。
+
+## 技术栈
+
+| 层 | 选型 |
+| --- | --- |
+| 前端 | React 18 + TypeScript（strict）· Vite · Ant Design 5 · TanStack Query · React Router · axios |
+| 后端 | FastAPI · Python 3.12 / 3.13 · pydantic v2 |
+| 数据 | ChromaDB（向量检索）· SQLite（工单 / 会话 / 评测）· 混合检索（向量 + 词法） |
+| 模型 | OpenAI Compatible 接口（如阿里云百炼）· 离线模式零依赖 |
+| 工程 | ESLint + Prettier · Vitest · ruff · GitHub Actions |
 
 ## 目录结构
 
@@ -32,27 +77,33 @@ ResolveDesk 是一个企业 IT 知识库工单助手，演示一条完整的智�
 backend/                    FastAPI 后端
   app/
     main.py                 应用入口与路由
-    config.py               配置定义（含维度自动探测）
+    config.py               配置定义（含嵌入维度自动探测）
     database.py             SQLite 初始化与访问（工单/评测/会话）
     schemas.py              API 数据模型
     services/
       agent.py              Tool Calling Agent 与启发式回退
       conversations.py      会话与消息持久化
       vector_store.py       ChromaDB 向量库（含维度一致性校验）
-      responder.py          聊天客户端与回答/摘要生成
+      responder.py          LLM 客户端与回答/摘要生成
       evaluator.py          内置评测套件
       ...
 
-frontend/
-  app.py                    Streamlit 前端入口（会话管理）
+frontend/                   React + TypeScript 前端（Vite）
+  src/
+    api/                    API 类型定义与 axios 客户端（与后端 schemas 对齐）
+    pages/                  对话 / 知识库 / 工单 / 会话 / 评测 / 状态
+    components/layout/      应用布局与侧边导航
+  vite.config.ts            开发代理（/api → 后端）与构建配置
 
 data/
   knowledge_base/           内置样例知识库
   upload_test_docs/         上传测试文件
 
 deploy/
-  *.Dockerfile              容器构建文件
-  nginx/default.conf        反向代理配置
+  backend.Dockerfile        后端容器构建
+  frontend.Dockerfile       前端多阶段构建（Node 编译 → nginx 托管）
+  nginx/default.conf        nginx 静态托管 + /api 反向代理
+  healthcheck_http.py       容器健康检查
 
 tests/                      自动化测试与手动测试说明
 .github/workflows/ci.yml    GitHub Actions：lint + 测试
@@ -61,22 +112,28 @@ tests/                      自动化测试与手动测试说明
 ## 运行要求
 
 - Python 3.11+（推荐 3.12 / 3.13，与 CI 一致）
+- Node.js 18+（推荐 22 LTS，与 CI 一致）
 - 如需解析 PDF，需要 `pymupdf`（requirements 已包含）
 - 如需接入外部模型，需要一个 OpenAI Compatible 接口
 
 ## 快速开始
 
 ```powershell
-# 1. 创建虚拟环境并安装依赖
+# 1. 创建后端虚拟环境并安装依赖
 python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 
-# 2. 配置环境变量（可选，默认离线模式可直接运行）
+# 2. 安装前端依赖
+cd frontend
+npm install
+cd ..
+
+# 3. 配置环境变量（可选，默认离线模式可直接运行）
 copy .env.example .env
 # 编辑 .env，填入模型配置
 
-# 3. 启动
+# 4. 一键启动（后端 + 前端）
 ./run.ps1
 ```
 
@@ -84,25 +141,26 @@ copy .env.example .env
 
 ```powershell
 python -m uvicorn backend.app.main:app --host 127.0.0.1 --port 8000
-streamlit run frontend/app.py
+cd frontend
+npm run dev        # 开发服务器，/api 自动代理到 8000
 ```
 
 默认访问地址：
 
+- 前端页面：`http://127.0.0.1:5173`
 - 后端 API：`http://127.0.0.1:8000`（交互文档 `/docs`）
-- 前端页面：`http://127.0.0.1:8501`
 
 ## Docker 启动
 
 ```bash
-# 开发环境
+# 开发环境（前端容器含 nginx 静态托管 + /api 反向代理）
 docker compose up --build
 
-# 生产环境（含 nginx 统一入口）
+# 生产环境
 docker compose -f docker-compose.prod.yml up --build -d
 ```
 
-生产编排额外包含 `nginx`：`/api/*` 转发到后端，`/` 转发到前端，默认入口 `http://localhost/`。
+前端镜像采用多阶段构建：`node:22-alpine` 编译 React 产物 → `nginx:alpine` 托管静态文件；`/api/*` 由 nginx 转发到后端，`/` 提供前端页面。开发环境前端入口 `http://localhost:8501/`，生产环境 `http://localhost/`。
 
 ## 配置说明
 
@@ -171,11 +229,11 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 ## 前端功能
 
-- 服务状态面板（模型、文档、工单、会话、评测统计）
-- 知识库管理（导入样例 / 上传文档 / 重置）
-- 多轮对话（自动记住当前会话，支持"新会话"）
-- 引用来源、调试信息展示
-- 内置评测与历史回看
+- 智能对话：多轮会话（会话消息本地持久化，切换页面不丢失）、引用来源、调试信息（决策路径 / 工具调用）、新会话
+- 知识库管理：拖拽上传（TXT / MD / PDF）、导入样例、文档列表与摘要、一键清空
+- 工单记录 / 会话列表：完整展示工单与会话信息
+- 评测中心：一键运行内置评测、历史批次与用例明细回看
+- 系统状态：模型提供方、数据量统计、PDF 支持，自动刷新
 
 ## 数据存储
 
@@ -188,27 +246,32 @@ docker compose -f docker-compose.prod.yml up --build -d
 ## 测试与代码规范
 
 ```powershell
-# 单元测试（22 条用例，覆盖 Agent 工具循环、会话记忆、API 全链路）
+# 后端单元测试（22 条用例，覆盖 Agent 工具循环、会话记忆、API 全链路）
 python -m unittest discover -s tests -p "test_*.py"
-
-# 代码规范
 pip install ruff
 ruff check .
+
+# 前端（TypeScript 检查 + 组件测试 + lint）
+cd frontend
+npm run build      # tsc -b && vite build
+npm run test       # Vitest 组件测试
+npm run lint       # ESLint
 ```
 
-CI（GitHub Actions）会在每次 push 时自动运行 lint 与测试（Python 3.12 / 3.13）。
+CI（GitHub Actions）在每次 push 时自动运行：
+
+- 后端：ruff + 22 条单元测试（Python 3.12 / 3.13 矩阵）
+- 前端：ESLint + 类型检查 + 构建 + Vitest（Node 22）
 
 手动测试说明见 `tests/manual_test_cases.md`。
 
-## 已知实现特点
+## 已知实现边界
 
 - 检索采用 ChromaDB 向量 + 本地词法覆盖率混合排序，分数可解释、可调试
 - 真实模型模式下走 Tool Calling Agent 循环，离线模式自动回退到规则决策，保证任何环境可演示
 - 工单为本地模拟，不对接真实 ITSM 系统
 - 文档按文本块处理，不包含复杂权限、租户和审批流程
 
-## 适合的用途
+## License
 
-- RAG / Agent 应用示例
-- 企业知识库问答与工单升级策略原型
-- 模型接入、离线回退与可观测性方案演示
+[MIT](LICENSE)
