@@ -52,7 +52,7 @@ class VectorStore:
             by_source[chunk.source].append(chunk)
 
         for source, source_chunks in by_source.items():
-            self._delete_source(source)
+            self.delete_source(source)
             embeddings = self.embedder.embed_texts([chunk.text for chunk in source_chunks])
             self.collection.upsert(
                 ids=[chunk.chunk_id for chunk in source_chunks],
@@ -107,11 +107,13 @@ class VectorStore:
         hits.sort(key=lambda chunk: chunk.score, reverse=True)
         return hits[:top_k]
 
-    def _delete_source(self, source: str) -> None:
+    def delete_source(self, source: str) -> int:
+        """删除指定来源的全部分块，返回删除数量。"""
         existing = self.collection.get(where={"source": source})
         ids = existing.get("ids", [])
         if ids:
             self.collection.delete(ids=ids)
+        return len(ids)
 
     def list_sources(self) -> list[SourceSummary]:
         if self.count() == 0:

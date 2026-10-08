@@ -16,6 +16,7 @@ from .schemas import (
     AppStatus,
     ChatRequest,
     ChatResponse,
+    DocumentDeleteResponse,
     DocumentSummary,
     EvaluationReport,
     EvaluationRunSummary,
@@ -199,6 +200,14 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             )
             for item in services.vector_store.list_sources()
         ]
+
+    @application.delete("/documents/{source}", response_model=DocumentDeleteResponse)
+    def delete_document(source: str) -> DocumentDeleteResponse:
+        deleted_chunks = services.vector_store.delete_source(source)
+        if deleted_chunks == 0:
+            raise HTTPException(status_code=404, detail=f"文档不存在：{source}")
+        logger.info("Deleted document %s (%s chunks)", source, deleted_chunks)
+        return DocumentDeleteResponse(source=source, deleted_chunks=deleted_chunks)
 
     @application.get("/evaluations", response_model=list[EvaluationRunSummary])
     def list_evaluations() -> list[EvaluationRunSummary]:

@@ -57,6 +57,11 @@ class IngestResponse(BaseModel):
     sources: list[str]
 
 
+class DocumentDeleteResponse(BaseModel):
+    source: str
+    deleted_chunks: int
+
+
 class DocumentSummary(BaseModel):
     source: str
     chunk_count: int

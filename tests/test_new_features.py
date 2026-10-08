@@ -152,6 +152,28 @@ class NewFeatureTests(unittest.TestCase):
         self.assertIsNotNone(payload["response"]["message_id"])
         self.assertTrue(payload["response"]["citations"])
 
+    def test_delete_document_by_source(self) -> None:
+        docs = self.client.get("/documents").json()
+        self.assertGreater(len(docs), 0)
+        target = docs[0]["source"]
+        count_before = self.client.get("/status").json()["vector_documents"]
+
+        deleted = self.client.delete(f"/documents/{target}")
+        self.assertEqual(deleted.status_code, 200)
+        body = deleted.json()
+        self.assertEqual(body["source"], target)
+        self.assertGreater(body["deleted_chunks"], 0)
+
+        # 列表与统计同步
+        remaining = self.client.get("/documents").json()
+        self.assertNotIn(target, [d["source"] for d in remaining])
+        count_after = self.client.get("/status").json()["vector_documents"]
+        self.assertEqual(count_after, count_before - body["deleted_chunks"])
+
+        # 删除不存在的文档 → 404
+        missing = self.client.delete(f"/documents/{target}")
+        self.assertEqual(missing.status_code, 404)
+
     def test_chat_stream_ticket_mode_is_not_streamed(self) -> None:
         # 转单模式没有长文本，直接返回 JSON
         response = self.client.post(
