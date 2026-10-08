@@ -14,6 +14,9 @@
 - RAG 问答：文档导入（TXT / MD / PDF）→ 分块 → 向量化 → 混合检索排序，回答带引用片段与得分
 - Tool Calling Agent：`search_knowledge` / `create_ticket` 工具循环，LLM 自主决策；无模型时回退启发式规则
 - 多轮会话：`session_id` 贯穿请求，SQLite 持久化会话与消息，Agent 自动携带上下文理解追问
+- 流式输出：`POST /chat` 支持 SSE，答案逐块流式渲染
+- 工单状态流转：`open → processing → resolved → closed`，可跟踪处理进度
+- 回答反馈闭环：每条回答可标记"有用 / 没用"，反馈汇总展示在系统状态
 - 内置评测套件：一键运行命中回答 / 未命中转单 / 显式升级等用例
 - 可观测性：响应携带决策路径、工具调用序列与检索分数，预留 LangSmith 追踪
 
@@ -191,7 +194,7 @@ docker compose -f docker-compose.prod.yml up --build -d
 ### 健康与状态
 
 - `GET /health`
-- `GET /status`：环境、文档数、工单数、会话数、评测记录数、模型提供方、PDF 支持
+- `GET /status`：环境、文档数、工单数、会话数、评测记录数、回答反馈汇总（有用 / 没用）、模型提供方、PDF 支持
 
 ### 知识库
 
@@ -201,22 +204,31 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 ### 对话与工单
 
-- `POST /chat`：可选传入 `session_id` 实现多轮对话，响应返回 `session_id`
-- `GET /tickets`
+- `POST /chat`：可选传入 `session_id` 实现多轮对话；`stream=true` 时以 SSE 流式返回回答
+- `GET /tickets`、`PATCH /tickets/{ticket_no}`：工单列表与状态流转（`open` / `processing` / `resolved` / `closed`）
+- `POST /feedback`：对回答反馈（`message_id` + `rating`：`1` 有用 / `-1` 没用）
 - `GET /sessions`：会话列表（消息数、更新时间）
 
 ```json
-// 请求（新会话）
-{ "message": "VPN 连不上怎么办？" }
+// 请求（新会话 + 流式）
+{ "message": "VPN 连不上怎么办？", "stream": true }
 
 // 请求（继续会话）
 { "message": "还是不行", "session_id": "abc123" }
+
+// 工单状态流转
+PATCH /tickets/IT-20261008-001
+{ "status": "processing" }
+
+// 回答反馈
+POST /feedback
+{ "message_id": 20, "rating": 1 }
 ```
 
 响应有两种模式：
 
-- `mode=answer`：返回答案与引用片段
-- `mode=ticket`：返回创建的工单与转单原因
+- `mode=answer`：返回答案、引用片段与 `message_id`（用于反馈）
+- `mode=ticket`：返回创建的工单（含 `status`）与转单原因
 
 ### 评测
 
@@ -229,11 +241,12 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 ## 前端功能
 
-- 智能对话：多轮会话（会话消息本地持久化，切换页面不丢失）、引用来源、调试信息（决策路径 / 工具调用）、新会话
+- 智能对话：SSE 流式渲染回答、多轮会话（会话消息本地持久化，切换页面不丢失）、引用来源、调试信息（决策路径 / 工具调用）、回答反馈（有用 / 没用）、新会话
 - 知识库管理：拖拽上传（TXT / MD / PDF）、导入样例、文档列表与摘要、一键清空
-- 工单记录 / 会话列表：完整展示工单与会话信息
+- 工单记录：完整展示工单信息，状态下拉一键流转（待处理 / 处理中 / 已解决 / 已关闭）
+- 会话列表：完整展示会话信息
 - 评测中心：一键运行内置评测、历史批次与用例明细回看
-- 系统状态：模型提供方、数据量统计、PDF 支持，自动刷新
+- 系统状态：模型提供方、数据量统计、回答反馈汇总、PDF 支持，自动刷新
 
 ## 数据存储
 
@@ -246,7 +259,7 @@ docker compose -f docker-compose.prod.yml up --build -d
 ## 测试与代码规范
 
 ```powershell
-# 后端单元测试（22 条用例，覆盖 Agent 工具循环、会话记忆、API 全链路）
+# 后端单元测试（28 条用例，覆盖 Agent 工具循环、会话记忆、工单状态流转、回答反馈、流式输出、API 全链路）
 python -m unittest discover -s tests -p "test_*.py"
 pip install ruff
 ruff check .
@@ -260,7 +273,7 @@ npm run lint       # ESLint
 
 CI（GitHub Actions）在每次 push 时自动运行：
 
-- 后端：ruff + 22 条单元测试（Python 3.12 / 3.13 矩阵）
+- 后端：ruff + 28 条单元测试（Python 3.12 / 3.13 矩阵）
 - 前端：ESLint + 类型检查 + 构建 + Vitest（Node 22）
 
 手动测试说明见 `tests/manual_test_cases.md`。
