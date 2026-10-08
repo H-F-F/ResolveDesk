@@ -29,7 +29,9 @@ class Database:
                     user_question TEXT NOT NULL,
                     reason TEXT NOT NULL,
                     summary TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    status TEXT NOT NULL DEFAULT 'open',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS evaluation_runs (
@@ -55,6 +57,7 @@ class Database:
                     session_id TEXT NOT NULL,
                     role TEXT NOT NULL,
                     content TEXT NOT NULL,
+                    rating INTEGER,
                     created_at TEXT NOT NULL
                 );
 
@@ -62,6 +65,41 @@ class Database:
                 ON messages (session_id, id);
                 """
             )
+            # 兼容旧库：为已存在的表补充新列
+            self._ensure_column(connection, "tickets", "status", "TEXT NOT NULL DEFAULT 'open'")
+            self._ensure_column(connection, "tickets", "updated_at", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column(connection, "messages", "rating", "INTEGER")
+
+    @staticmethod
+    def _ensure_column(connection: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {
+            row["name"]
+            for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+        if column not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            connection.commit()
+
+    def feedback_counts(self) -> tuple[int, int]:
+        """返回 (有用数, 没用数)。"""
+        with self.connect() as connection:
+            positive = connection.execute(
+                "SELECT COUNT(*) AS c FROM messages WHERE rating = 1"
+            ).fetchone()["c"]
+            negative = connection.execute(
+                "SELECT COUNT(*) AS c FROM messages WHERE rating = -1"
+            ).fetchone()["c"]
+        return int(positive), int(negative)
+
+    def set_message_rating(self, message_id: int, rating: int) -> bool:
+        """为消息设置反馈评分（1=有用，-1=没用）。返回是否更新到记录。"""
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE messages SET rating = ? WHERE id = ?",
+                (rating, message_id),
+            )
+            connection.commit()
+        return cursor.rowcount > 0
 
     def ticket_count(self) -> int:
         with self.connect() as connection:

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json as _json
 import logging
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
 from .config import Settings, settings
 from .database import Database
@@ -17,11 +19,13 @@ from .schemas import (
     DocumentSummary,
     EvaluationReport,
     EvaluationRunSummary,
+    FeedbackRequest,
     HealthResponse,
     IngestResponse,
     ResetResponse,
     SessionSummary,
     TicketRecord,
+    TicketUpdateRequest,
 )
 from .services.agent import SupportAgent
 from .services.chunker import TextChunker
@@ -129,6 +133,8 @@ def build_status(services: AppServices) -> AppStatus:
         embedding_provider=services.embedder.provider_name,
         embedding_model=services.embedder.model_name,
         pdf_supported=services.loader.pdf_supported,
+        feedback_positive=services.database.feedback_counts()[0],
+        feedback_negative=services.database.feedback_counts()[1],
     )
 
 
@@ -287,12 +293,54 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
     @application.post("/chat", response_model=ChatResponse)
     def chat(request: ChatRequest) -> ChatResponse:
         try:
-            return services.agent.chat(request.message, session_id=request.session_id)
+            response = services.agent.chat(request.message, session_id=request.session_id)
+            # 流式模式：answer 按小块 SSE 输出，最后发 done 事件携带完整响应（引用/调试/消息id）
+            if request.stream and response.mode == "answer" and response.answer:
+                answer = response.answer
+
+                def stream_events():
+                    chunk_size = 8
+                    for i in range(0, len(answer), chunk_size):
+                        chunk = answer[i : i + chunk_size]
+                        payload = _json.dumps(
+                            {"type": "delta", "content": chunk}, ensure_ascii=False
+                        )
+                        yield f"data: {payload}\n\n"
+                    done = _json.dumps(
+                        {"type": "done", "response": response.model_dump()},
+                        ensure_ascii=False,
+                    )
+                    yield f"data: {done}\n\n"
+
+                return StreamingResponse(stream_events(), media_type="text/event-stream")
+            return response
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:
             logger.exception("Chat request failed")
             raise HTTPException(status_code=500, detail="问答处理失败") from exc
+
+    @application.patch("/tickets/{ticket_no}", response_model=TicketRecord)
+    def update_ticket(ticket_no: str, request: TicketUpdateRequest) -> TicketRecord:
+        try:
+            ticket = services.ticket_service.update_status(ticket_no, request.status)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        if ticket is None:
+            raise HTTPException(status_code=404, detail=f"工单不存在：{ticket_no}")
+        return ticket
+
+    @application.post("/feedback")
+    def feedback(request: FeedbackRequest) -> dict[str, object]:
+        updated = services.database.set_message_rating(request.message_id, request.rating)
+        if not updated:
+            raise HTTPException(status_code=404, detail=f"消息不存在：{request.message_id}")
+        positive, negative = services.database.feedback_counts()
+        return {
+            "status": "ok",
+            "feedback_positive": positive,
+            "feedback_negative": negative,
+        }
 
     @application.get("/tickets", response_model=list[TicketRecord])
     def list_tickets() -> list[TicketRecord]:

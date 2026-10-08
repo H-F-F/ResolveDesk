@@ -129,7 +129,9 @@ class SupportAgent:
             if response.ticket is not None
             else "（无输出）"
         )
-        self.conversations.append_message(session_id, "assistant", assistant_note)
+        assistant_message_id = self.conversations.append_message(session_id, "assistant", assistant_note)
+        # 回填消息 id，前端可基于它提交"有用/没用"反馈
+        response.message_id = assistant_message_id
 
         return response
 

@@ -51,10 +51,11 @@ class ConversationService:
         return new_id
 
     @traceable(name="append_message")
-    def append_message(self, session_id: str, role: str, content: str) -> None:
+    def append_message(self, session_id: str, role: str, content: str) -> int:
+        """持久化一条消息并返回其自增 id（用于回答反馈）。"""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         with self.database.connect() as connection:
-            connection.execute(
+            cursor = connection.execute(
                 """
                 INSERT INTO messages (session_id, role, content, created_at)
                 VALUES (?, ?, ?, ?)
@@ -66,6 +67,7 @@ class ConversationService:
                 (now, session_id),
             )
             connection.commit()
+        return int(cursor.lastrowid)
 
     def list_messages(
         self,

@@ -17,12 +17,22 @@ class TicketRecord(BaseModel):
     user_question: str
     reason: str
     summary: str
+    status: str = "open"
     created_at: str
+    updated_at: str = ""
+
+
+TICKET_STATUSES: tuple[str, ...] = ("open", "processing", "resolved", "closed")
+
+
+class TicketUpdateRequest(BaseModel):
+    status: Literal["open", "processing", "resolved", "closed"]
 
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="User input message")
     session_id: str | None = Field(default=None, description="Optional conversation session id")
+    stream: bool = Field(default=False, description="Stream answer as SSE chunks")
 
 
 class ChatResponse(BaseModel):
@@ -32,7 +42,13 @@ class ChatResponse(BaseModel):
     ticket: TicketRecord | None = None
     retrieval_score: float | None = None
     session_id: str | None = None
+    message_id: int | None = Field(default=None, description="Assistant message id for feedback")
     debug: dict[str, Any] = Field(default_factory=dict)
+
+
+class FeedbackRequest(BaseModel):
+    message_id: int = Field(..., description="Assistant message id returned by /chat")
+    rating: Literal[1, -1] = Field(..., description="1 = useful, -1 = not useful")
 
 
 class IngestResponse(BaseModel):
@@ -59,6 +75,8 @@ class AppStatus(BaseModel):
     embedding_provider: str
     embedding_model: str
     pdf_supported: bool
+    feedback_positive: int = 0
+    feedback_negative: int = 0
 
 
 class HealthResponse(BaseModel):
