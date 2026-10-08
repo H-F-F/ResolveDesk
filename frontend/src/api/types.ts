@@ -12,12 +12,18 @@ export interface TicketRecord {
   user_question: string;
   reason: string;
   summary: string;
+  status: string;
   created_at: string;
+  updated_at: string;
 }
+
+export const TICKET_STATUSES = ["open", "processing", "resolved", "closed"] as const;
+export type TicketStatus = (typeof TICKET_STATUSES)[number];
 
 export interface ChatRequest {
   message: string;
   session_id?: string | null;
+  stream?: boolean;
 }
 
 export interface ChatResponse {
@@ -27,7 +33,19 @@ export interface ChatResponse {
   ticket: TicketRecord | null;
   retrieval_score: number | null;
   session_id: string | null;
+  message_id: number | null;
   debug: Record<string, unknown>;
+}
+
+export interface FeedbackRequest {
+  message_id: number;
+  rating: 1 | -1;
+}
+
+export interface FeedbackResponse {
+  status: string;
+  feedback_positive: number;
+  feedback_negative: number;
 }
 
 export interface IngestResponse {
@@ -54,6 +72,8 @@ export interface AppStatus {
   embedding_provider: string;
   embedding_model: string;
   pdf_supported: boolean;
+  feedback_positive: number;
+  feedback_negative: number;
 }
 
 export interface HealthResponse {

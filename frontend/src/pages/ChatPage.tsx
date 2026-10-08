@@ -1,7 +1,9 @@
 import {
   BugOutlined,
   CheckCircleOutlined,
+  DislikeOutlined,
   FileSearchOutlined,
+  LikeOutlined,
   SendOutlined,
   ThunderboltOutlined,
 } from "@ant-design/icons";
@@ -19,7 +21,7 @@ import {
   Typography,
 } from "antd";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "@/api/endpoints";
+import { api, chatStream } from "@/api/endpoints";
 import { extractErrorMessage } from "@/api/client";
 import type { ChatResponse, Citation, TicketRecord } from "@/api/types";
 
@@ -28,6 +30,8 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   response?: ChatResponse;
+  /** 本条回答的"有用/没用"反馈：1 = 有用，-1 = 没用 */
+  feedback?: 1 | -1;
 }
 
 const SESSION_KEY = "resolvedesk.session_id";
@@ -106,6 +110,7 @@ function TicketCard({ ticket }: { ticket: TicketRecord }) {
           <CheckCircleOutlined style={{ color: "#faad14" }} />
           <Typography.Text strong>已创建升级工单</Typography.Text>
           <Tag color="orange">{ticket.ticket_no}</Tag>
+          <Tag color="gold">待处理</Tag>
         </Space>
         <Typography.Text>{ticket.summary}</Typography.Text>
       </Space>
@@ -113,9 +118,16 @@ function TicketCard({ ticket }: { ticket: TicketRecord }) {
   );
 }
 
-function AssistantMessage({ message }: { message: ChatMessage }) {
+interface AssistantMessageProps {
+  message: ChatMessage;
+  onFeedback: (messageId: number, rating: 1 | -1) => void;
+}
+
+function AssistantMessage({ message, onFeedback }: AssistantMessageProps) {
   const response = message.response;
   const isTicket = response?.mode === "ticket";
+  const messageId = response?.message_id ?? null;
+  const canFeedback = Boolean(messageId) && !isTicket;
 
   return (
     <div style={{ maxWidth: "86%" }}>
@@ -170,6 +182,32 @@ function AssistantMessage({ message }: { message: ChatMessage }) {
             ]}
           />
         )}
+        {canFeedback && messageId !== null && (
+          <Space size={4} style={{ marginTop: 8 }}>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              这个回答有帮助吗？
+            </Typography.Text>
+            <Tooltip title={message.feedback === 1 ? "已标记为有用" : "标记为有用"}>
+              <Button
+                size="small"
+                type={message.feedback === 1 ? "primary" : "text"}
+                icon={<LikeOutlined />}
+                aria-label="标记为有用"
+                onClick={() => onFeedback(messageId, 1)}
+              />
+            </Tooltip>
+            <Tooltip title={message.feedback === -1 ? "已标记为没用" : "标记为没用"}>
+              <Button
+                size="small"
+                type={message.feedback === -1 ? "primary" : "text"}
+                danger={message.feedback === -1}
+                icon={<DislikeOutlined />}
+                aria-label="标记为没用"
+                onClick={() => onFeedback(messageId, -1)}
+              />
+            </Tooltip>
+          </Space>
+        )}
       </div>
     </div>
   );
@@ -204,25 +242,59 @@ export default function ChatPage() {
     }
     setError(null);
     const userMessage: ChatMessage = { id: nextId(), role: "user", content: question };
-    setMessages((prev) => [...prev, userMessage]);
+    const assistantId = nextId();
+    setMessages((prev) => [
+      ...prev,
+      userMessage,
+      { id: assistantId, role: "assistant", content: "" },
+    ]);
     setInput("");
     setLoading(true);
+
+    // 流式渲染：delta 逐块累积，done 事件带回完整响应（引用/调试/message_id）
+    let accumulated = "";
     try {
-      const response = await api.chat({ message: question, session_id: sessionId });
+      const response = await chatStream(
+        { message: question, session_id: sessionId },
+        (chunk) => {
+          accumulated += chunk;
+          setMessages((prev) =>
+            prev.map((m) => (m.id === assistantId ? { ...m, content: accumulated } : m)),
+          );
+        },
+      );
       if (response.session_id) {
         setSessionId(response.session_id);
         window.sessionStorage.setItem(SESSION_KEY, response.session_id);
       }
-      setMessages((prev) => [
-        ...prev,
-        { id: nextId(), role: "assistant", content: response.answer ?? "", response },
-      ]);
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId
+            ? { ...m, content: response.answer ?? accumulated, response }
+            : m,
+        ),
+      );
     } catch (err) {
       setError(extractErrorMessage(err));
+      setMessages((prev) => prev.filter((m) => m.id !== assistantId));
     } finally {
       setLoading(false);
     }
   }, [input, loading, sessionId]);
+
+  const handleFeedback = useCallback(async (messageId: number, rating: 1 | -1) => {
+    try {
+      await api.submitFeedback({ message_id: messageId, rating });
+    } catch (err) {
+      setError(extractErrorMessage(err));
+      return;
+    }
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.response?.message_id === messageId ? { ...m, feedback: rating } : m,
+      ),
+    );
+  }, []);
 
   const handleNewSession = useCallback(() => {
     setMessages([]);
@@ -298,13 +370,13 @@ export default function ChatPage() {
             </div>
           ) : (
             <div key={message.id} style={{ display: "flex" }}>
-              <AssistantMessage message={message} />
+              <AssistantMessage message={message} onFeedback={handleFeedback} />
             </div>
           ),
         )}
         {loading && (
           <div>
-            <Typography.Text type="secondary">Agent 正在处理…</Typography.Text>
+            <Typography.Text type="secondary">Agent 正在生成回答…</Typography.Text>
           </div>
         )}
         <div ref={bottomRef} />
