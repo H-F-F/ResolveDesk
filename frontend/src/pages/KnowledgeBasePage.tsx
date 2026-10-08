@@ -66,6 +66,15 @@ export default function KnowledgeBasePage() {
     onError: (err) => message.error(extractErrorMessage(err)),
   });
 
+  const deleteDocument = useMutation({
+    mutationFn: (source: string) => api.deleteDocument(source),
+    onSuccess: (result) => {
+      message.success(`已删除文档 ${result.source}（${result.deleted_chunks} 个分块）`);
+      invalidateAll();
+    },
+    onError: (err) => message.error(extractErrorMessage(err)),
+  });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <Card
@@ -137,7 +146,28 @@ export default function KnowledgeBasePage() {
         <List
           dataSource={documents}
           renderItem={(doc) => (
-            <List.Item>
+            <List.Item
+              actions={[
+                <Popconfirm
+                  key="delete"
+                  title="删除这篇文档？"
+                  description={`将从向量库移除 ${doc.source} 的全部 ${doc.chunk_count} 个分块`}
+                  okText="删除"
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => deleteDocument.mutate(doc.source)}
+                >
+                  <Button
+                    size="small"
+                    danger
+                    type="text"
+                    icon={<DeleteOutlined />}
+                    loading={deleteDocument.isPending}
+                  >
+                    删除
+                  </Button>
+                </Popconfirm>,
+              ]}
+            >
               <List.Item.Meta
                 title={
                   <Space>

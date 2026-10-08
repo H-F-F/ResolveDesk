@@ -54,6 +54,11 @@ export interface IngestResponse {
   sources: string[];
 }
 
+export interface DocumentDeleteResponse {
+  source: string;
+  deleted_chunks: number;
+}
+
 export interface DocumentSummary {
   source: string;
   chunk_count: number;

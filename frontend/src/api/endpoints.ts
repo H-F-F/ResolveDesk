@@ -3,6 +3,7 @@ import type {
   AppStatus,
   ChatRequest,
   ChatResponse,
+  DocumentDeleteResponse,
   DocumentSummary,
   EvaluationReport,
   EvaluationRunSummary,
@@ -22,6 +23,11 @@ export const api = {
   getHealth: () => apiClient.get<HealthResponse>("/health").then((r) => r.data),
 
   listDocuments: () => apiClient.get<DocumentSummary[]>("/documents").then((r) => r.data),
+
+  deleteDocument: (source: string) =>
+    apiClient
+      .delete<DocumentDeleteResponse>(`/documents/${encodeURIComponent(source)}`)
+      .then((r) => r.data),
 
   listTickets: () => apiClient.get<TicketRecord[]>("/tickets").then((r) => r.data),
 
