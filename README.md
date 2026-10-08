@@ -22,11 +22,11 @@
 
 ## 界面预览
 
-![智能对话：多轮会话 + 引用来源 + 调试信息](docs/images/react-chat.png)
+![智能对话：多轮会话 + 流式回答 + 引用来源 + 回答反馈](docs/images/react-chat.png)
 
-| 知识库管理 | 多轮会话与工单创建 |
+| 知识库管理 | 工单记录与状态流转 |
 | --- | --- |
-| ![知识库管理](docs/images/react-knowledge.png) | ![多轮会话与工单](docs/images/react-ticket.png) |
+| ![知识库管理](docs/images/react-knowledge.png) | ![工单记录与状态流转](docs/images/react-ticket.png) |
 
 ## 系统架构
 
@@ -198,8 +198,9 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 ### 知识库
 
-- `GET /documents`
-- `POST /ingest`（`multipart/form-data`，字段名 `files`）
+- `GET /documents`：文档列表（分块数、摘要）
+- `DELETE /documents/{source}`：删除指定文档的全部向量分块
+- `POST /ingest`（`multipart/form-data`，字段名 `files`）：上传 TXT / MD / PDF，同名文档自动覆盖
 - `POST /ingest/samples`
 
 ### 对话与工单
@@ -242,7 +243,7 @@ POST /feedback
 ## 前端功能
 
 - 智能对话：SSE 流式渲染回答、多轮会话（会话消息本地持久化，切换页面不丢失）、引用来源、调试信息（决策路径 / 工具调用）、回答反馈（有用 / 没用）、新会话
-- 知识库管理：拖拽上传（TXT / MD / PDF）、导入样例、文档列表与摘要、一键清空
+- 知识库管理：拖拽上传（TXT / MD / PDF）、导入样例、按文档删除、文档列表与摘要、一键清空
 - 工单记录：完整展示工单信息，状态下拉一键流转（待处理 / 处理中 / 已解决 / 已关闭）
 - 会话列表：完整展示会话信息
 - 评测中心：一键运行内置评测、历史批次与用例明细回看
@@ -282,6 +283,7 @@ CI（GitHub Actions）在每次 push 时自动运行：
 
 - 检索采用 ChromaDB 向量 + 本地词法覆盖率混合排序，分数可解释、可调试
 - 真实模型模式下走 Tool Calling Agent 循环，离线模式自动回退到规则决策，保证任何环境可演示
+- SSE 流式目前为后端分块推送（先计算完整答案再逐块下发），便于离线模式演示；真实模型环境可替换为 token 级流式
 - 工单为本地模拟，不对接真实 ITSM 系统
 - 文档按文本块处理，不包含复杂权限、租户和审批流程
 
