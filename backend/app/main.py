@@ -149,13 +149,27 @@ def build_health(services: AppServices) -> HealthResponse:
     )
 
 
+class _StreamCancelled(Exception):
+    """客户端断开连接，主动中止流式生成线程。"""
+
+
 def stream_events(services: AppServices, request: ChatRequest):
     """SSE 事件生成器。
 
     - 真实模型：Agent 决策环非流式，最终答案逐 token 推送（真流式）
     - 离线模式：分块模拟推送，保证演示环境体验一致
+    - 客户端断开时通过 cancel 事件中止后台线程，避免资源泄漏
     """
     events: _queue.Queue[tuple[str, object]] = _queue.Queue()
+    cancel = _threading.Event()
+
+    def _raise_if_cancelled() -> None:
+        if cancel.is_set():
+            raise _StreamCancelled()
+
+    def on_delta(chunk: str) -> None:
+        _raise_if_cancelled()
+        events.put(("delta", chunk))
 
     def run() -> None:
         try:
@@ -163,7 +177,7 @@ def stream_events(services: AppServices, request: ChatRequest):
                 final = services.agent.chat(
                     request.message,
                     session_id=request.session_id,
-                    on_delta=lambda chunk: events.put(("delta", chunk)),
+                    on_delta=on_delta,
                 )
             else:
                 response = services.agent.chat(request.message, session_id=request.session_id)
@@ -171,11 +185,15 @@ def stream_events(services: AppServices, request: ChatRequest):
                     answer = response.answer
                     chunk_size = 8
                     for i in range(0, len(answer), chunk_size):
+                        _raise_if_cancelled()
                         events.put(("delta", answer[i : i + chunk_size]))
                         # 离线演示按真实流式节奏逐块下发，模拟打字机效果
                         _threading.Event().wait(0.05)
                 final = response
             events.put(("done", final))
+        except _StreamCancelled:
+            # 客户端已断开，静默结束
+            pass
         except Exception as exc:  # 转为 SSE error 事件，避免连接悬挂
             logger.exception("Streaming chat request failed")
             events.put(("error", str(exc)))
@@ -183,22 +201,26 @@ def stream_events(services: AppServices, request: ChatRequest):
     worker = _threading.Thread(target=run, daemon=True)
     worker.start()
 
-    while True:
-        kind, payload = events.get()
-        if kind == "delta":
-            body = _json.dumps({"type": "delta", "content": payload}, ensure_ascii=False)
-            yield f"data: {body}\n\n"
-        elif kind == "done":
-            body = _json.dumps(
-                {"type": "done", "response": payload.model_dump()},
-                ensure_ascii=False,
-            )
-            yield f"data: {body}\n\n"
-            return
-        elif kind == "error":
-            body = _json.dumps({"type": "error", "detail": payload}, ensure_ascii=False)
-            yield f"data: {body}\n\n"
-            return
+    try:
+        while True:
+            kind, payload = events.get()
+            if kind == "delta":
+                body = _json.dumps({"type": "delta", "content": payload}, ensure_ascii=False)
+                yield f"data: {body}\n\n"
+            elif kind == "done":
+                body = _json.dumps(
+                    {"type": "done", "response": payload.model_dump()},
+                    ensure_ascii=False,
+                )
+                yield f"data: {body}\n\n"
+                return
+            elif kind == "error":
+                body = _json.dumps({"type": "error", "detail": payload}, ensure_ascii=False)
+                yield f"data: {body}\n\n"
+                return
+    finally:
+        # 客户端断开（生成器被 close）时通知后台线程停止
+        cancel.set()
 
 
 def create_app(app_settings: Settings | None = None) -> FastAPI:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import shutil
 import tempfile
+import time
 import unittest
 import warnings
 from pathlib import Path
@@ -11,7 +12,8 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 
 from backend.app.config import ROOT_DIR, Settings
-from backend.app.main import create_app
+from backend.app.main import create_app, stream_events
+from backend.app.schemas import ChatRequest
 from backend.app.services.agent import SupportAgent
 from backend.app.services.contracts import AgentToolCall, AgentToolTurn
 
@@ -142,6 +144,74 @@ class StreamingTests(unittest.TestCase):
         self.assertEqual(payload["response"]["mode"], "answer")
         self.assertIsNotNone(payload["response"]["message_id"])
         self.assertTrue(payload["response"]["citations"])
+
+
+class SlowStreamClient:
+    """模拟慢速流式 LLM：每个 delta 间隔 50ms，共 60 块，用于断连测试。"""
+
+    provider_name = "fake-slow"
+    model_name = "fake-slow-client"
+
+    def __init__(self) -> None:
+        self.delta_calls = 0
+        self.turn_count = 0
+
+    def complete(self, system_prompt: str, user_prompt: str) -> str:
+        return "工单摘要"
+
+    def complete_with_tools_stream(self, messages, tools, on_delta) -> AgentToolTurn:
+        self.turn_count += 1
+        for i in range(60):
+            self.delta_calls += 1
+            on_delta(f"块{i}。")
+            time.sleep(0.05)
+        return AgentToolTurn(content="完整答案", tool_calls=[])
+
+
+class StreamCancellationTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp_root = Path(tempfile.mkdtemp(prefix="resolvedesk_test_"))
+        run_id = uuid4().hex
+        self.storage_dir = self._tmp_root / f"test_cancel_{run_id}"
+        self.settings = Settings(
+            app_env="test",
+            chat_provider="offline",
+            embedding_provider="offline",
+            model_api_base="",
+            model_api_key="",
+            chat_model_name="",
+            embedding_model_name="",
+            collection_name=f"test_cancel_{uuid4().hex}",
+            storage_dir=self.storage_dir,
+            vector_store_dir=self.storage_dir / "chroma",
+            sqlite_path=self.storage_dir / "app.db",
+            logs_dir=self.storage_dir / "logs",
+            knowledge_base_dir=KNOWLEDGE_BASE_DIR,
+        )
+        self.client = TestClient(create_app(self.settings))
+        self.client.__enter__()
+
+    def tearDown(self) -> None:
+        self.client.__exit__(None, None, None)
+        shutil.rmtree(self._tmp_root, ignore_errors=True)
+
+    def test_client_disconnect_stops_background_thread(self) -> None:
+        fake = SlowStreamClient()
+        services = self.client.app.state.services
+        services.agent.responder.chat_client = fake
+        gen = stream_events(services, ChatRequest(message="测试问题", stream=True))
+
+        first = next(gen)  # 拿到首个 delta
+        self.assertIn("delta", first)
+        time.sleep(0.3)  # 期间后台线程持续推送
+        calls_before = fake.delta_calls
+        self.assertGreater(calls_before, 3)
+
+        gen.close()  # 模拟客户端断开：生成器关闭触发 cancel
+        time.sleep(0.35)
+
+        # 后台线程已停止：delta 调用数不再明显增长
+        self.assertLessEqual(fake.delta_calls, calls_before + 1)
 
 
 if __name__ == "__main__":
