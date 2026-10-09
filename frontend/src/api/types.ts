@@ -14,7 +14,7 @@ export interface TicketRecord {
   summary: string;
   status: string;
   created_at: string;
-  updated_at: string;
+  updated_at: string | null;
 }
 
 export const TICKET_STATUSES = ["open", "processing", "resolved", "closed"] as const;

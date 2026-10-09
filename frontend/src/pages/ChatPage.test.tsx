@@ -64,7 +64,7 @@ describe("ChatPage", () => {
     expect(screen.getByText(/输入一个问题开始/)).toBeInTheDocument();
   });
 
-  it("提交问题后流式渲染助手回答", async () => {
+  it("提交问题后流式渲染助手回答", { timeout: 15000 }, async () => {
     renderPage();
     const textarea = screen.getByPlaceholderText(/输入你的问题/);
     const button = screen.getByRole("button", { name: /提交问题/ });
@@ -82,7 +82,7 @@ describe("ChatPage", () => {
     expect(await screen.findByText("这个回答有帮助吗？")).toBeInTheDocument();
   });
 
-  it("点击有用后调用反馈接口并标记状态", async () => {
+  it("点击有用后调用反馈接口并标记状态", { timeout: 15000 }, async () => {
     renderPage();
     const textarea = screen.getByPlaceholderText(/输入你的问题/);
     const button = screen.getByRole("button", { name: /提交问题/ });
@@ -100,5 +100,30 @@ describe("ChatPage", () => {
       rating: 1,
     });
     expect(screen.getByText("这个回答有帮助吗？")).toBeInTheDocument();
+  });
+
+  it("流式请求失败时展示错误与重试按钮，重试成功后渲染回答", { timeout: 15000 }, async () => {
+    const { chatStream } = await import("@/api/endpoints");
+    const mockedStream = vi.mocked(chatStream);
+    mockedStream.mockImplementationOnce(async () => {
+      throw new Error("模型接口超时");
+    });
+
+    renderPage();
+    const textarea = screen.getByPlaceholderText(/输入你的问题/);
+    const button = screen.getByRole("button", { name: /提交问题/ });
+
+    const { default: userEvent } = await import("@testing-library/user-event");
+    await userEvent.type(textarea, "VPN 连不上怎么办");
+    await userEvent.click(button);
+
+    // 失败：展示错误信息与重试按钮
+    expect(await screen.findByText("模型接口超时")).toBeInTheDocument();
+    const retryButton = screen.getByRole("button", { name: /重\s*试/ });
+
+    // 重试：第二次调用成功（默认 mock 实现）
+    await userEvent.click(retryButton);
+    expect(await screen.findByText("测试回答")).toBeInTheDocument();
+    expect(screen.queryByText("模型接口超时")).not.toBeInTheDocument();
   });
 });

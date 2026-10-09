@@ -220,8 +220,17 @@ export default function ChatPage() {
     () => window.sessionStorage.getItem(SESSION_KEY),
   );
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ text: string; retry?: { question: string; sessionId: string | null } } | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  // 组件卸载时中止进行中的流式请求，避免后台 fetch 继续占用连接
+  useEffect(
+    () => () => {
+      abortRef.current?.abort();
+    },
+    [],
+  );
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -235,58 +244,74 @@ export default function ChatPage() {
     window.sessionStorage.setItem(SESSION_MESSAGES_KEY, JSON.stringify(tail));
   }, [messages]);
 
-  const handleSend = useCallback(async () => {
-    const question = input.trim();
-    if (!question || loading) {
-      return;
-    }
-    setError(null);
-    const userMessage: ChatMessage = { id: nextId(), role: "user", content: question };
-    const assistantId = nextId();
-    setMessages((prev) => [
-      ...prev,
-      userMessage,
-      { id: assistantId, role: "assistant", content: "" },
-    ]);
-    setInput("");
-    setLoading(true);
-
-    // 流式渲染：delta 逐块累积，done 事件带回完整响应（引用/调试/message_id）
-    let accumulated = "";
-    try {
-      const response = await chatStream(
-        { message: question, session_id: sessionId },
-        (chunk) => {
-          accumulated += chunk;
-          setMessages((prev) =>
-            prev.map((m) => (m.id === assistantId ? { ...m, content: accumulated } : m)),
-          );
-        },
-      );
-      if (response.session_id) {
-        setSessionId(response.session_id);
-        window.sessionStorage.setItem(SESSION_KEY, response.session_id);
+  const handleSend = useCallback(
+    async (retryQuestion?: string) => {
+      const question = (retryQuestion ?? input).trim();
+      if (!question || loading) {
+        return;
       }
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: response.answer ?? accumulated, response }
-            : m,
-        ),
-      );
-    } catch (err) {
-      setError(extractErrorMessage(err));
-      setMessages((prev) => prev.filter((m) => m.id !== assistantId));
-    } finally {
-      setLoading(false);
-    }
-  }, [input, loading, sessionId]);
+      setError(null);
+      const userMessage: ChatMessage = { id: nextId(), role: "user", content: question };
+      const assistantId = nextId();
+      setMessages((prev) => [
+        ...prev,
+        userMessage,
+        { id: assistantId, role: "assistant", content: "" },
+      ]);
+      if (!retryQuestion) {
+        setInput("");
+      }
+      setLoading(true);
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      // 流式渲染：delta 逐块累积，done 事件带回完整响应（引用/调试/message_id）
+      let accumulated = "";
+      try {
+        const response = await chatStream(
+          { message: question, session_id: sessionId },
+          (chunk) => {
+            accumulated += chunk;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, content: accumulated } : m)),
+            );
+          },
+          controller.signal,
+        );
+        if (response.session_id) {
+          setSessionId(response.session_id);
+          window.sessionStorage.setItem(SESSION_KEY, response.session_id);
+        }
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === assistantId
+              ? { ...m, content: response.answer ?? accumulated, response }
+              : m,
+          ),
+        );
+      } catch (err) {
+        // 流式中断时保留已渲染的内容，仅提示错误并提供重试
+        setError({
+          text: extractErrorMessage(err),
+          retry: { question, sessionId },
+        });
+        setMessages((prev) =>
+          prev.map((m) => (m.id === assistantId ? { ...m, content: accumulated } : m)),
+        );
+      } finally {
+        setLoading(false);
+        abortRef.current = null;
+      }
+    },
+    [input, loading, sessionId],
+  );
 
   const handleFeedback = useCallback(async (messageId: number, rating: 1 | -1) => {
     try {
       await api.submitFeedback({ message_id: messageId, rating });
     } catch (err) {
-      setError(extractErrorMessage(err));
+      setError({ text: extractErrorMessage(err) });
       return;
     }
     setMessages((prev) =>
@@ -334,7 +359,20 @@ export default function ChatPage() {
       </Card>
 
       {error && (
-        <Alert type="error" showIcon message="请求失败" description={error} closable />
+        <Alert
+          type="error"
+          showIcon
+          message="请求失败"
+          description={error.text}
+          closable
+          action={
+            error.retry && (
+              <Button size="small" onClick={() => void handleSend(error.retry?.question)}>
+                重试
+              </Button>
+            )
+          }
+        />
       )}
 
       <Card

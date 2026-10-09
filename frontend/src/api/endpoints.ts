@@ -114,8 +114,13 @@ export async function chatStream(
           onDelta(event.content ?? "");
         } else if (event.type === "done") {
           final = event.response as ChatResponse;
+        } else if (event.type === "error") {
+          throw new Error(event.detail ?? "流式回答处理失败");
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof Error) {
+          throw err;
+        }
         // 忽略无法解析的 SSE 事件
       }
     }
