@@ -14,13 +14,15 @@
 - RAG 问答：文档导入（TXT / MD / PDF）→ 分块 → 向量化 → 混合检索排序，回答带引用片段与得分
 - Tool Calling Agent：`search_knowledge` / `create_ticket` 工具循环，LLM 自主决策；无模型时回退启发式规则
 - 多轮会话：`session_id` 贯穿请求，SQLite 持久化会话与消息，Agent 自动携带上下文理解追问
-- 流式输出：`POST /chat` 支持 SSE，答案逐块流式渲染
+- 流式输出：`POST /chat` 支持 SSE；真实模型 token 级真流式，离线模式按块模拟节奏
 - 工单状态流转：`open → processing → resolved → closed`，可跟踪处理进度
 - 回答反馈闭环：每条回答可标记"有用 / 没用"，反馈汇总展示在系统状态
 - 内置评测套件：一键运行命中回答 / 未命中转单 / 显式升级等用例
 - 可观测性：响应携带决策路径、工具调用序列与检索分数，预留 LangSmith 追踪
 
 ## 界面预览
+
+![演示：智能对话（流式回答）→ 回答反馈 → 工单状态流转 → 知识库管理](docs/images/demo.gif)
 
 ![智能对话：多轮会话 + 流式回答 + 引用来源 + 回答反馈](docs/images/react-chat.png)
 
@@ -205,7 +207,7 @@ docker compose -f docker-compose.prod.yml up --build -d
 
 ### 对话与工单
 
-- `POST /chat`：可选传入 `session_id` 实现多轮对话；`stream=true` 时以 SSE 流式返回回答
+- `POST /chat`：可选传入 `session_id` 实现多轮对话；`stream=true` 时以 SSE 流式返回回答（真实模型 token 级，离线分块模拟）
 - `GET /tickets`、`PATCH /tickets/{ticket_no}`：工单列表与状态流转（`open` / `processing` / `resolved` / `closed`）
 - `POST /feedback`：对回答反馈（`message_id` + `rating`：`1` 有用 / `-1` 没用）
 - `GET /sessions`：会话列表（消息数、更新时间）
@@ -260,7 +262,7 @@ POST /feedback
 ## 测试与代码规范
 
 ```powershell
-# 后端单元测试（28 条用例，覆盖 Agent 工具循环、会话记忆、工单状态流转、回答反馈、流式输出、API 全链路）
+# 后端单元测试（31 条用例，覆盖 Agent 工具循环、会话记忆、工单状态流转、回答反馈、流式输出、API 全链路）
 python -m unittest discover -s tests -p "test_*.py"
 pip install ruff
 ruff check .
@@ -274,7 +276,7 @@ npm run lint       # ESLint
 
 CI（GitHub Actions）在每次 push 时自动运行：
 
-- 后端：ruff + 28 条单元测试（Python 3.12 / 3.13 矩阵）
+- 后端：ruff + 31 条单元测试（Python 3.12 / 3.13 矩阵）
 - 前端：ESLint + 类型检查 + 构建 + Vitest（Node 22）
 
 手动测试说明见 `tests/manual_test_cases.md`。
@@ -283,7 +285,7 @@ CI（GitHub Actions）在每次 push 时自动运行：
 
 - 检索采用 ChromaDB 向量 + 本地词法覆盖率混合排序，分数可解释、可调试
 - 真实模型模式下走 Tool Calling Agent 循环，离线模式自动回退到规则决策，保证任何环境可演示
-- SSE 流式目前为后端分块推送（先计算完整答案再逐块下发），便于离线模式演示；真实模型环境可替换为 token 级流式
+- SSE 流式：真实模型模式为 token 级真流式（SSE 逐 token 推送，首 token 到达即开始渲染）；离线模式按 8 字符分块并模拟发送节奏，保证演示体验一致
 - 工单为本地模拟，不对接真实 ITSM 系统
 - 文档按文本块处理，不包含复杂权限、租户和审批流程
 
