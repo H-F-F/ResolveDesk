@@ -50,6 +50,8 @@ flowchart LR
     API -.-> TR
 ```
 
+> 完整的分层说明（前端结构 / Agent 决策循环 / RAG 数据流 / SSE 实现 / 数据存储 / 部署）见 [docs/architecture.md](docs/architecture.md)。
+
 ## 核心流程
 
 1. 文档被读取、切分为文本块并写入 ChromaDB 向量库
