@@ -17,7 +17,7 @@
 - 流式输出：`POST /chat` 支持 SSE；真实模型 token 级真流式，离线模式按块模拟节奏
 - 工单状态流转：`open → processing → resolved → closed`，可跟踪处理进度
 - 回答反馈闭环：每条回答可标记"有用 / 没用"，反馈汇总展示在系统状态
-- 内置评测套件：一键运行命中回答 / 未命中转单 / 显式升级等用例
+- 内置评测套件：一键运行命中回答 / 未命中转单 / 显式升级等用例（真实模型实测结果见 [docs/benchmark.md](docs/benchmark.md)）
 - 可观测性：响应携带决策路径、工具调用序列与检索分数，预留 LangSmith 追踪
 
 ## 界面预览
@@ -235,7 +235,7 @@ POST /feedback
 
 ### 评测
 
-- `POST /evaluate/samples`：运行内置 6 条评测用例（命中回答 / 未命中转单 / 显式升级）
+- `POST /evaluate/samples`：运行内置 6 条评测用例（命中回答 / 未命中转单 / 显式升级）；真实模型实测见 [docs/benchmark.md](docs/benchmark.md)
 - `GET /evaluations`、`GET /evaluations/{run_id}`：评测历史与明细
 
 ### 重置
@@ -262,12 +262,12 @@ POST /feedback
 ## 测试与代码规范
 
 ```powershell
-# 后端单元测试（31 条用例，覆盖 Agent 工具循环、会话记忆、工单状态流转、回答反馈、流式输出、API 全链路）
+# 后端单元测试（32 条用例，覆盖 Agent 工具循环、会话记忆、工单状态流转、回答反馈、流式输出、断连清理、API 全链路）
 python -m unittest discover -s tests -p "test_*.py"
 pip install ruff
 ruff check .
 
-# 前端（TypeScript 检查 + 组件测试 + lint）
+# 前端（TypeScript 检查 + 组件测试 15 条 + lint）
 cd frontend
 npm run build      # tsc -b && vite build
 npm run test       # Vitest 组件测试
@@ -276,7 +276,7 @@ npm run lint       # ESLint
 
 CI（GitHub Actions）在每次 push 时自动运行：
 
-- 后端：ruff + 31 条单元测试（Python 3.12 / 3.13 矩阵）
+- 后端：ruff + 32 条单元测试（Python 3.12 / 3.13 矩阵）
 - 前端：ESLint + 类型检查 + 构建 + Vitest（Node 22）
 
 手动测试说明见 `tests/manual_test_cases.md`。
