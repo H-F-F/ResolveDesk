@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json as _json
 import logging
+import queue as _queue
+import threading as _threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
@@ -145,6 +147,58 @@ def build_health(services: AppServices) -> HealthResponse:
         vector_documents=services.vector_store.count(),
         ticket_count=services.ticket_service.count_tickets(),
     )
+
+
+def stream_events(services: AppServices, request: ChatRequest):
+    """SSE 事件生成器。
+
+    - 真实模型：Agent 决策环非流式，最终答案逐 token 推送（真流式）
+    - 离线模式：分块模拟推送，保证演示环境体验一致
+    """
+    events: _queue.Queue[tuple[str, object]] = _queue.Queue()
+
+    def run() -> None:
+        try:
+            if services.agent.responder.chat_client is not None:
+                final = services.agent.chat(
+                    request.message,
+                    session_id=request.session_id,
+                    on_delta=lambda chunk: events.put(("delta", chunk)),
+                )
+            else:
+                response = services.agent.chat(request.message, session_id=request.session_id)
+                if response.mode == "answer" and response.answer:
+                    answer = response.answer
+                    chunk_size = 8
+                    for i in range(0, len(answer), chunk_size):
+                        events.put(("delta", answer[i : i + chunk_size]))
+                        # 离线演示按真实流式节奏逐块下发，模拟打字机效果
+                        _threading.Event().wait(0.05)
+                final = response
+            events.put(("done", final))
+        except Exception as exc:  # 转为 SSE error 事件，避免连接悬挂
+            logger.exception("Streaming chat request failed")
+            events.put(("error", str(exc)))
+
+    worker = _threading.Thread(target=run, daemon=True)
+    worker.start()
+
+    while True:
+        kind, payload = events.get()
+        if kind == "delta":
+            body = _json.dumps({"type": "delta", "content": payload}, ensure_ascii=False)
+            yield f"data: {body}\n\n"
+        elif kind == "done":
+            body = _json.dumps(
+                {"type": "done", "response": payload.model_dump()},
+                ensure_ascii=False,
+            )
+            yield f"data: {body}\n\n"
+            return
+        elif kind == "error":
+            body = _json.dumps({"type": "error", "detail": payload}, ensure_ascii=False)
+            yield f"data: {body}\n\n"
+            return
 
 
 def create_app(app_settings: Settings | None = None) -> FastAPI:
@@ -301,28 +355,14 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     @application.post("/chat", response_model=ChatResponse)
     def chat(request: ChatRequest) -> ChatResponse:
+        if request.stream:
+            return StreamingResponse(
+                stream_events(services, request),
+                media_type="text/event-stream",
+            )
+
         try:
-            response = services.agent.chat(request.message, session_id=request.session_id)
-            # 流式模式：answer 按小块 SSE 输出，最后发 done 事件携带完整响应（引用/调试/消息id）
-            if request.stream and response.mode == "answer" and response.answer:
-                answer = response.answer
-
-                def stream_events():
-                    chunk_size = 8
-                    for i in range(0, len(answer), chunk_size):
-                        chunk = answer[i : i + chunk_size]
-                        payload = _json.dumps(
-                            {"type": "delta", "content": chunk}, ensure_ascii=False
-                        )
-                        yield f"data: {payload}\n\n"
-                    done = _json.dumps(
-                        {"type": "done", "response": response.model_dump()},
-                        ensure_ascii=False,
-                    )
-                    yield f"data: {done}\n\n"
-
-                return StreamingResponse(stream_events(), media_type="text/event-stream")
-            return response
+            return services.agent.chat(request.message, session_id=request.session_id)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except Exception as exc:

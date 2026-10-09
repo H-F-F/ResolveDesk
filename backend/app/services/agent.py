@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Callable
 from typing import Any
 
 from ..schemas import ChatResponse, Citation, TicketRecord
@@ -111,7 +112,12 @@ class SupportAgent:
         self.lexical_score_threshold = lexical_score_threshold
 
     @traceable(name="support_agent_chat")
-    def chat(self, message: str, session_id: str | None = None) -> ChatResponse:
+    def chat(
+        self,
+        message: str,
+        session_id: str | None = None,
+        on_delta: Callable[[str], None] | None = None,
+    ) -> ChatResponse:
         question = message.strip()
         if not question:
             raise ValueError("消息不能为空")
@@ -119,7 +125,7 @@ class SupportAgent:
         session_id = self.conversations.get_or_create_session(session_id)
 
         if self.responder.chat_client is not None:
-            response = self._chat_with_tools(question, session_id)
+            response = self._chat_with_tools(question, session_id, on_delta=on_delta)
         else:
             response = self._chat_heuristic(question, session_id)
 
@@ -139,7 +145,12 @@ class SupportAgent:
     # Tool-calling path (LLM available)
     # ------------------------------------------------------------------
 
-    def _chat_with_tools(self, question: str, session_id: str) -> ChatResponse:
+    def _chat_with_tools(
+        self,
+        question: str,
+        session_id: str,
+        on_delta: Callable[[str], None] | None = None,
+    ) -> ChatResponse:
         messages = self._build_messages(question, session_id)
         retrieval_hits: list[RetrievedChunk] = []
         created_ticket: TicketRecord | None = None
@@ -147,9 +158,17 @@ class SupportAgent:
         executed_tools: list[str] = []
         iterations = 0
 
+        # 真实模型支持流式时逐 token 推送；offline/无流式接口回退到完整返回
+        stream_method = None
+        if on_delta is not None:
+            stream_method = getattr(self.responder.chat_client, "complete_with_tools_stream", None)
+
         while iterations < MAX_TOOL_ITERATIONS:
             iterations += 1
-            turn = self.responder.chat_client.complete_with_tools(messages, AGENT_TOOLS)
+            if stream_method is not None:
+                turn = stream_method(messages, AGENT_TOOLS, on_delta)
+            else:
+                turn = self.responder.chat_client.complete_with_tools(messages, AGENT_TOOLS)
             if not turn.has_tool_calls:
                 final_text = (turn.content or "").strip() or None
                 break

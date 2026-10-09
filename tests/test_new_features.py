@@ -174,14 +174,18 @@ class NewFeatureTests(unittest.TestCase):
         missing = self.client.delete(f"/documents/{target}")
         self.assertEqual(missing.status_code, 404)
 
-    def test_chat_stream_ticket_mode_is_not_streamed(self) -> None:
-        # 转单模式没有长文本，直接返回 JSON
+    def test_chat_stream_ticket_mode_returns_single_done_event(self) -> None:
+        # 转单模式没有长文本，SSE 只发一个 done 事件，不产生 delta
         response = self.client.post(
             "/chat", json={"message": "公司报销流程是什么", "stream": True}
         )
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.headers.get("content-type", "").split(";")[0], "application/json")
-        self.assertEqual(response.json()["mode"], "ticket")
+        self.assertIn("text/event-stream", response.headers.get("content-type", ""))
+        self.assertNotIn('"type": "delta"', response.text)
+        done_line = next(line for line in response.text.splitlines() if '"type": "done"' in line)
+        payload = json.loads(done_line[len("data: ") :])
+        self.assertEqual(payload["response"]["mode"], "ticket")
+        self.assertIsNotNone(payload["response"]["ticket"])
 
 
 if __name__ == "__main__":

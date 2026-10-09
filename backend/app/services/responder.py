@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import re
 from typing import Any
@@ -118,6 +119,95 @@ class OpenAICompatibleChatClient:
                 continue
             tool_calls.append(AgentToolCall(call_id=call_id, name=name, arguments=arguments))
 
+        return AgentToolTurn(content=content, tool_calls=tool_calls)
+
+    @traceable(name="chat_completion_tools_stream_openai_compatible")
+    def complete_with_tools_stream(
+        self,
+        messages: list[dict],
+        tools: list[dict],
+        on_delta: Any,
+    ) -> AgentToolTurn:
+        """Token 级流式工具调用。
+
+        - content 分片实时回调 on_delta（仅文本轮会推，工具轮协议上无 content）
+        - tool_calls 分片按 index 累积，流结束后统一返回
+        """
+        payload: dict = {
+            "model": self.model_name,
+            "messages": messages,
+            "temperature": self.temperature,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
+
+        response = requests.post(
+            f"{self.base_url}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=self.timeout_seconds,
+            verify=self.verify_ssl,
+            stream=True,
+        )
+        self._raise_for_status(response)
+
+        content_parts: list[str] = []
+        tool_call_chunks: dict[int, dict[str, str]] = {}
+
+        for raw_line in response.iter_lines(decode_unicode=True):
+            if not raw_line:
+                continue
+            line = raw_line.strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[len("data:") :].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+
+            choices = chunk.get("choices") or []
+            if not choices:
+                continue
+            delta = choices[0].get("delta") or {}
+
+            content = delta.get("content")
+            if isinstance(content, str) and content:
+                content_parts.append(content)
+                on_delta(content)
+
+            for raw_call in delta.get("tool_calls") or []:
+                if not isinstance(raw_call, dict):
+                    continue
+                index = int(raw_call.get("index", 0))
+                entry = tool_call_chunks.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                if raw_call.get("id"):
+                    entry["id"] = str(raw_call["id"])
+                function = raw_call.get("function") or {}
+                if isinstance(function, dict):
+                    if function.get("name"):
+                        entry["name"] += str(function["name"])
+                    if function.get("arguments"):
+                        entry["arguments"] += str(function["arguments"])
+
+        tool_calls = [
+            AgentToolCall(
+                call_id=entry["id"] or f"call_{index}",
+                name=entry["name"],
+                arguments=entry["arguments"] or "{}",
+            )
+            for index, entry in sorted(tool_call_chunks.items())
+            if entry["name"]
+        ]
+
+        content = "".join(content_parts).strip() or None
         return AgentToolTurn(content=content, tool_calls=tool_calls)
 
     def _render_content(self, content: Any) -> str:
