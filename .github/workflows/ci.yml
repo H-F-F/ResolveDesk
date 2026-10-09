@@ -28,7 +28,7 @@ jobs:
           pip install ruff
 
       - name: Lint with ruff
-        run: ruff check .
+        run: ruff check backend/ tests/ deploy/ scripts/
 
       - name: Run backend tests
         run: python -m unittest discover -s tests -p "test_*.py"
