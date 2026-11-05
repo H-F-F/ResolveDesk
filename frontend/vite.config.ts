@@ -24,6 +24,16 @@ export default defineConfig({
   build: {
     outDir: "dist",
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        // 第三方库分包：长缓存 + 首屏只加载入口必需 vendor
+        manualChunks: {
+          vendor: ["react", "react-dom", "react-router-dom"],
+          antd: ["antd", "@ant-design/icons"],
+          data: ["@tanstack/react-query", "axios"],
+        },
+      },
+    },
   },
   test: {
     environment: "jsdom",
