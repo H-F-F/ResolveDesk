@@ -6,6 +6,7 @@ import queue as _queue
 import threading as _threading
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -44,6 +45,9 @@ from .services.tickets import TicketService
 from .services.vector_store import VectorStore
 
 logger = logging.getLogger(__name__)
+
+# 单文件上传大小上限（接口层校验，防止超大文件整体读入内存）
+MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 @dataclass
 class AppServices:
@@ -248,7 +252,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -298,11 +302,23 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     @application.post("/ingest", response_model=IngestResponse)
     async def ingest_documents(files: list[UploadFile] = File(...)) -> IngestResponse:
+        raw_documents = []
+        for file in files:
+            # 接口层显式校验：白名单与 loader 共用，避免异常文件进入解析流程
+            suffix = Path(file.filename or "").suffix.lower()
+            if suffix not in services.loader.supported_suffixes:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"暂不支持的文件类型: {suffix or '(无扩展名)'}",
+                )
+            content = await file.read()
+            if len(content) > MAX_UPLOAD_BYTES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"文件 {file.filename} 超过 {MAX_UPLOAD_BYTES // (1024 * 1024)}MB 上限",
+                )
+            raw_documents.append(services.loader.load_bytes(file.filename, content))
         try:
-            raw_documents = []
-            for file in files:
-                content = await file.read()
-                raw_documents.append(services.loader.load_bytes(file.filename, content))
             result = services.ingestion_service.ingest_raw_documents(raw_documents)
             logger.info("Ingested %s files and %s chunks", result.ingested_files, result.ingested_chunks)
             return result

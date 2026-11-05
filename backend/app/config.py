@@ -74,6 +74,15 @@ class Settings:
     app_env: str = field(default_factory=lambda: _env_str("APP_ENV", "local"))
     log_level: str = field(default_factory=lambda: _env_str("LOG_LEVEL", "INFO"))
     frontend_api_base: str = field(default_factory=lambda: _env_str("FRONTEND_API_BASE", "http://localhost:8000"))
+    cors_origins: list[str] = field(
+        default_factory=lambda: [
+            origin.strip()
+            for origin in _env_str(
+                "CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+            ).split(",")
+            if origin.strip()
+        ]
+    )
     chat_provider: str = field(default_factory=lambda: _env_str("CHAT_PROVIDER", "offline"))
     embedding_provider: str = field(default_factory=lambda: _env_str("EMBEDDING_PROVIDER", "offline"))
     model_api_base: str = field(default_factory=lambda: _env_str("MODEL_API_BASE", ""))
