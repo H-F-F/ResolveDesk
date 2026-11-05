@@ -15,12 +15,17 @@ class Database:
         connection = sqlite3.connect(self.db_path)
         connection.row_factory = sqlite3.Row
         try:
+            # 并发写等待上限：FastAPI 线程池中多个请求同时写库时避免直接报
+            # "database is locked"，超过 5 秒仍锁则抛错（显式失败而非静默丢写）
+            connection.execute("PRAGMA busy_timeout = 5000")
             yield connection
         finally:
             connection.close()
 
     def initialize(self) -> None:
         with self.connect() as connection:
+            # WAL：读写不互斥，多线程下并发读 + 单写者，避免锁库
+            connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS tickets (

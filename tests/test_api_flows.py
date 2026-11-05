@@ -196,6 +196,25 @@ class ApiFlowTests(unittest.TestCase):
         self.assertEqual(sessions_response.status_code, 200)
         self.assertEqual(sessions_response.json(), [])
 
+    def test_ingest_rejects_unsupported_suffix(self) -> None:
+        response = self.client.post(
+            "/ingest",
+            files={"files": ("evil.exe", b"MZ\x90\x00", "application/octet-stream")},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("暂不支持的文件类型", response.json()["detail"])
+
+    def test_ingest_rejects_oversized_file(self) -> None:
+        from backend.app.main import MAX_UPLOAD_BYTES
+
+        oversized = b"a" * (MAX_UPLOAD_BYTES + 1)
+        response = self.client.post(
+            "/ingest",
+            files={"files": ("big.txt", oversized, "text/plain")},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("超过 20MB 上限", response.json()["detail"])
+
 
 if __name__ == "__main__":
     unittest.main()
