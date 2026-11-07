@@ -12,7 +12,7 @@
 | 评测套件 | 内置 6 条用例：4 条知识库命中问答 + 2 条转单 |
 | 运行时间 | 2026-10-09（总耗时约 58s，含模型推理与工具调用） |
 
-> 复现：真实模式启动后调用 `POST /evaluate/samples`，或在前端"评测中心"点击"运行内置评测"；结果保存于 SQLite 并可经 `GET /evaluations` 回看。
+> 复现：真实模式启动后调用 `POST /evaluate/samples`，或在前端"评测中心"点击"运行内置评测"；也可直接运行 `python scripts/run_evaluation.py --reset`（自动检查服务、重载样例、运行评测并打印明细）。结果保存于 SQLite 并可经 `GET /evaluations` 回看。
 
 ## 结果汇总
 
