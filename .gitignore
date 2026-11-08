@@ -196,3 +196,6 @@ frontend/node_modules/
 frontend/dist/
 frontend/coverage/
 frontend/.vite/
+
+# 本地面试准备材料（不随仓库公开）
+interview-guide.md

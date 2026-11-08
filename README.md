@@ -112,8 +112,9 @@ deploy/
   nginx/default.conf        nginx 静态托管 + /api 反向代理
   healthcheck_http.py       容器健康检查
 
+scripts/                    演示素材录制（record_gif.cjs）与评测复现（run_evaluation.py）
 tests/                      自动化测试与手动测试说明
-.github/workflows/ci.yml    GitHub Actions：lint + 测试
+.github/workflows/ci.yml    GitHub Actions：lint + 测试 + Docker 构建
 ```
 
 ## 运行要求
@@ -264,12 +265,15 @@ POST /feedback
 ## 测试与代码规范
 
 ```powershell
-# 后端单元测试（32 条用例，覆盖 Agent 工具循环、会话记忆、工单状态流转、回答反馈、流式输出、断连清理、API 全链路）
+# 后端单元测试（34 条用例，覆盖 Agent 工具循环、会话记忆、工单状态流转、回答反馈、流式输出、断连清理、API 全链路）
 python -m unittest discover -s tests -p "test_*.py"
 pip install ruff
-ruff check .
+ruff check backend/ tests/ deploy/ scripts/
 
-# 前端（TypeScript 检查 + 组件测试 15 条 + lint）
+# 一键复现内置评测（需先启动后端）
+python scripts/run_evaluation.py --reset
+
+# 前端（TypeScript 检查 + 组件测试 17 条 + lint）
 cd frontend
 npm run build      # tsc -b && vite build
 npm run test       # Vitest 组件测试
@@ -278,8 +282,9 @@ npm run lint       # ESLint
 
 CI（GitHub Actions）在每次 push 时自动运行：
 
-- 后端：ruff + 32 条单元测试（Python 3.12 / 3.13 矩阵）
-- 前端：ESLint + 类型检查 + 构建 + Vitest（Node 22）
+- 后端：ruff + 34 条单元测试（Python 3.12 / 3.13 矩阵）
+- 前端：ESLint + 类型检查 + 构建 + Vitest（17 条，Node 22）
+- Docker：构建后端 / 前端镜像，验证容器构建路径可用
 
 手动测试说明见 `tests/manual_test_cases.md`。
 
